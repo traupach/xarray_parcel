@@ -3,7 +3,9 @@
 # Functions to analytically determine moist pseudoadiabats using iteration through vertical levels.
 # Testing on these functions is incomplete and initial testing indicates they introduce drift
 # so that when lifting a parcel from the surface, the temperatures at the top of the atmosphere
-# are not accurate.
+# are not accurate. 
+#
+# These functions are for reference and should not be used.
 #
 # Tim Raupach <t.raupach@unsw.edu.au>.
 
