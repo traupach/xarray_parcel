@@ -15,14 +15,15 @@ def get_layer(dat, depth=100, drop=False, vert_dim='model_level_number', interpo
     Return an atmospheric layer from the surface with a given depth.
 
     Arguments:
-        dat: DataArray, must contain pressure.
-        bottom: Pressure level to start from [hPa].
-        depth: Depth above the bottom of the layer to mix [hPa].
-        drop: Drop unselected elements?
-        vert_dim: Vertical dimension name.
-        interpolate: Interpolate the bottom/top layers?
+      - dat: DataArray, must contain pressure.
+      - depth: Depth above the bottom of the layer to mix [hPa].
+      - drop: Drop unselected elements?
+      - vert_dim: Vertical dimension name.
+      - interpolate: Interpolate the bottom/top layers?
 
-    Returns: xarray DataArray with pressure and data variables for the layer.
+    Returns:
+
+      - xarray DataArray with pressure and data variables for the layer.
     """
        
     # Use the surface (lowest level) pressure as the bottom pressure.
@@ -52,13 +53,15 @@ def most_unstable_parcel(dat, depth=300, drop=False, vert_dim='model_level_numbe
     requested bottom and depth. No interpolation is performed.
 
     Arguments:
-        dat: DataArray, must contain pressure, temperature, and dewpoint.
-        bottom: Pressure level to start from [hPa].
-        depth: Depth above the bottom of the layer to mix [hPa].
-        drop: Drop unselected elements?
-        vert_dim: Vertical dimension name.
+        - dat: DataArray, must contain pressure, temperature, and dewpoint.
+        - bottom: Pressure level to start from [hPa].
+        - depth: Depth above the bottom of the layer to mix [hPa].
+        - drop: Drop unselected elements?
+        - vert_dim: Vertical dimension name.
 
-    Returns: xarray DataArray with pressure and data variables for the layer.
+    Returns:
+
+        - xarray DataArray with pressure and data variables for the layer.
     """
 
     layer = get_layer(dat=dat, depth=depth, drop=drop, vert_dim=vert_dim, interpolate=False)
@@ -78,12 +81,14 @@ def mixed_layer(dat, depth=100, vert_dim='model_level_number'):
     average value using the mean value theorem.
 
     Arguments:
-        dat: The DataArray to mix. Must contain pressure and variables.
-        bottom: Pressure above the surface pressure to start from [hPa].
-        depth: Depth above the bottom of the layer to mix [hPa].
-        vert_dim: The name of the vertical dimension.
+        - dat: The DataArray to mix. Must contain pressure and variables.
+        - bottom: Pressure above the surface pressure to start from [hPa].
+        - depth: Depth above the bottom of the layer to mix [hPa].
+        - vert_dim: The name of the vertical dimension.
 
-    Returns: xarray with mixed values of each data variable.
+    Returns:
+
+        - xarray with mixed values of each data variable.
     """
     
     layer = get_layer(dat=dat, depth=depth, drop=True)
@@ -100,11 +105,15 @@ def trapz(dat, x, dim, mask=None):
     Estimates int y dx.
    
     Arguments:
-        dat: Data to process.
-        x: The variable that contains 'x' values along dimension 'dim'.
-        dim: The dimension along which to integrate 'y' values.
-        mask: A mask the size of dx/means (ie dim.size-1) for which 
-              areas to include in the integration.
+        - dat: Data to process.
+        - x: The variable that contains 'x' values along dimension 'dim'.
+        - dim: The dimension along which to integrate 'y' values.
+        - mask: A mask the size of dx/means (ie dim.size-1) for which 
+                areas to include in the integration.
+
+    Returns:
+
+        - Integrated value along the axis.
     """
 
     dx = np.abs(dat[x].diff(dim))
@@ -126,10 +135,12 @@ def bound_pressure(pressure, bound, vert_dim='model_level_number'):
     Calculate the bounding pressure in a layer; returns the closest pressure to the bound.
     
     Arguments:
-        pressure: Atmospheric pressures [hPa].
-        bound: Bound to retrieve, broadcastable to pressure [hPa].
+        - pressure: Atmospheric pressures [hPa].
+        - bound: Bound to retrieve, broadcastable to pressure [hPa].
 
-    Returns: The bound pressures.
+    Returns:
+
+        - The bound pressures.
     """
     
     diffs = np.abs(pressure - bound)
@@ -144,13 +155,15 @@ def mixed_parcel(pressure, temperature, dewpoint, depth=100, vert_dim='model_lev
     pressure and dewpoint of the parcel.
 
     Arguments:
-        pressure: Pressure by level [hPa].
-        temperature: Temperature at each level [K].
-        dewpoint: Dewpoint at each level [K].
-        depth: Depth above the surface to mix [hPa].
-        vert_dim: The name of the vertical dimension.
+        - pressure: Pressure by level [hPa].
+        - temperature: Temperature at each level [K].
+        - dewpoint: Dewpoint at each level [K].
+        - depth: Depth above the surface to mix [hPa].
+        - vert_dim: The name of the vertical dimension.
 
-    Returns: DataArray with mixed parcel pressure [hPa], temperature [K] and dewpoint [K].
+    Returns:
+
+        - DataArray with mixed parcel pressure [hPa], temperature [K] and dewpoint [K].
     """
     
     # Use the surface (lowest level) pressure as the start of the layer to mix.
@@ -197,13 +210,14 @@ def dry_lapse(pressure, parcel_temperature, parcel_pressure=None, vert_dim='mode
     potential temperature).
 
     Arguments:
-        pressure: Atmospheric pressure level(s) of interest [hPa].
-        parcel_temperature: Parcel temperature before lifting (constant or broadcast-able 
-                            DataArray).
-        parcel_pressure: Parcel pressure(s) before lifting. Defaults to vertical maximum.
-        vert_dim: The name of the vertical dimension.
+        -pressure: Atmospheric pressure level(s) of interest [hPa].
+        -parcel_temperature: Parcel temperature before lifting (constant or broadcast-able DataArray).
+        - parcel_pressure: Parcel pressure(s) before lifting. Defaults to vertical maximum.
+        - vert_dim: The name of the vertical dimension.
 
-    Returns: Parcel temperature at each pressure level.
+    Returns:
+
+        - Parcel temperature at each pressure level.
     """
     
     if parcel_pressure is None:
@@ -221,13 +235,15 @@ def moist_adiabat_tables(regenerate=False, cache=True,
     Calculate moist adiabat lookup tables.
     
     Arguments:
-        regenerate: Calculate from scratch and save caches?
-        cache: Write cache files?
-        lookup_cache: A cache file (nc) for the adiabat lookup table.
-        adiabats_cache: A cache file (nc) for the adiabats cache.
-        **kwargs: Keyword arguments to moist_adiabat_lookup().
+        - regenerate: Calculate from scratch and save caches?
+        - cache: Write cache files?
+        - lookup_cache: A cache file (nc) for the adiabat lookup table.
+        - adiabats_cache: A cache file (nc) for the adiabats cache.
+        - **kwargs: Keyword arguments to moist_adiabat_lookup().
                            
-    Returns: two DataArrays: 1) a lookup table of pressure/temperature vs. adiabat number, 
+    Returns:
+
+        - two DataArrays: 1) a lookup table of pressure/temperature vs. adiabat number, 
              and 2) a lookup table of adiabat number to temperature by pressure profiles.
     """
     
@@ -258,12 +274,13 @@ def moist_adiabat_lookup(pressure_levels=np.round(np.arange(1100, 0, step=-0.5),
     Calculate moist adiabat lookup tables.
     
     Arguments:
-        pressure_levels: Pressure levels to keep in adiabat lookup table [hPa].
-        temperatures: Temperatures to keep in adiabat lookup table [K].
-        pres_step, temp_step: (Positive) step size for pressure_levels and 
+        - pressure_levels: Pressure levels to keep in adiabat lookup table [hPa].
+        - temperatures: Temperatures to keep in adiabat lookup table [K].
+        - pres_step, temp_step: (Positive) step size for pressure_levels and 
                               temperatures, respectively.
                               
-    Returns: two DataArrays: 1) a lookup table of pressure/temperature vs. adiabat number, 
+    Returns:
+        - two DataArrays: 1) a lookup table of pressure/temperature vs. adiabat number, 
              and 2) a lookup table of adiabat number to temperature by pressure profiles.
     """
         
@@ -319,16 +336,18 @@ def moist_lapse(pressure, parcel_temperature, moist_adiabat_lookup, moist_adiaba
                 parcel_pressure=None, vert_dim='model_level_number'):
     """
     Return the temperature of parcels raised moist-adiabatically (assuming liquid saturation processes).
-    What is returned are approximate pseudo-adiabatic moist lapse rates, found using a lookup table.
+    Note: What is returned are approximate pseudo-adiabatic moist lapse rates, found using a lookup table.
 
     Arguments:
-        pressure: Atmospheric pressure(s) to lift the parcel to [hPa].
-        parcel_temperature: Temperature(s) of parcels to lift [K].
-        moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by moist_adiabat_tables().
-        parcel_pressure: Parcel pressure before lifting. Defaults to vertical maximum.
-        vert_dim: The name of the vertical dimension.
+        - pressure: Atmospheric pressure(s) to lift the parcel to [hPa].
+        - parcel_temperature: Temperature(s) of parcels to lift [K].
+        - moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by moist_adiabat_tables().
+        - parcel_pressure: Parcel pressure before lifting. Defaults to vertical maximum.
+        - vert_dim: The name of the vertical dimension.
 
-    Returns: Parcel temperature at each pressure level.
+    Returns:
+
+        - Parcel temperature at each pressure level.
     """
 
     if parcel_pressure is None:
@@ -350,11 +369,13 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     Return the lifting condensation level for parcels.
     
     Arguments:
-        parcel_pressure: Pressure of the parcel to lift [hPa].
-        parcel_temperature: Parcel temperature [K].
-        parfel_dewpoint: Parcel dewpoint [K].
+        - parcel_pressure: Pressure of the parcel to lift [hPa].
+        - parcel_temperature: Parcel temperature [K].
+        - parfel_dewpoint: Parcel dewpoint [K].
     
-    Returns: A Dataset with lcl_pressure and lcl_temperature.
+    Returns:
+
+        - A Dataset with lcl_pressure and lcl_temperature.
     """
     
     press_lcl, temp_lcl = metpy.calc.lcl(pressure=parcel_pressure, 
@@ -376,14 +397,16 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
     Calculate temperatures of a lifted parcel.
     
     Arguments:
-        pressure: Pressure levels to calculate on [hPa].
-        parcel_pressure: Pressure of the parcel [hPa].
-        parcel_temperature: Temperature of the parcel [K].
-        parcel_dewpoint: Dewpoint of the parcel [K].
-        moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by moist_adiabat_tables().
+        - pressure: Pressure levels to calculate on [hPa].
+        - parcel_pressure: Pressure of the parcel [hPa].
+        - parcel_temperature: Temperature of the parcel [K].
+        - parcel_dewpoint: Dewpoint of the parcel [K].
+        - moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by moist_adiabat_tables().
   
-    Returns: Dataset with the temperature of the parcel lifted from parcel_pressure to 
-             levels in pressures, plus the LCL pressure and temperature.
+    Returns:
+
+        - Dataset with the temperature of the parcel lifted from parcel_pressure to 
+          levels in pressures, plus the LCL pressure and temperature.
     """
        
     out = xarray.Dataset()
@@ -420,16 +443,18 @@ def parcel_profile_with_lcl(pressure, temperature, parcel_pressure, parcel_tempe
     Calculate temperatures of a lifted parcel, including at the lcl.
     
     Arguments:
-        pressure: Pressure levels to calculate on [hPa].
-        temperature: Temperature at each pressure level [K].
-        parcel_pressure: Pressure of the parcel [hPa].
-        parcel_temperature: Temperature of the parcel [K].
-        parcel_dewpoint: Dewpoint of the parcel [K].
-        moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
+        - pressure: Pressure levels to calculate on [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - parcel_pressure: Pressure of the parcel [hPa].
+        - parcel_temperature: Temperature of the parcel [K].
+        - parcel_dewpoint: Dewpoint of the parcel [K].
+        - moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
                                               moist_adiabat_tables().
-        vert_dim: The name of the vertical dimension.
+        - vert_dim: The name of the vertical dimension.
   
-    Returns: Dataset with the temperature of the parcel lifted from parcel_pressure to 
+    Returns:
+
+         - Dataset with the temperature of the parcel lifted from parcel_pressure to 
              levels in pressures, including the LCL, plus the LCL pressure and temperature, and
              environmental temperature including at the LCL.
     """
@@ -446,13 +471,15 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number', temperature=None)
     Add the LCL to a profile.
     
     Arguments:
-        profile: Profile as returned from parcel_profile().
-        vert_dim: The vertical dimension to add the LCL pressure/temp to.
-        temperature: Environmental temperatures. If provided, interpolate environment 
-                     temperature for the LCL and return as 'env_temperature'.
+        - profile: Profile as returned from parcel_profile().
+        - vert_dim: The vertical dimension to add the LCL pressure/temp to.
+        - temperature: Environmental temperatures. If provided, interpolate environment 
+                       temperature for the LCL and return as 'env_temperature'.
         
-    Returns: A new profile object with LCL pressure and temperatures added. 
-             Note the vertical coordinate in the new profile is reindexed.
+    Returns:
+
+        - A new profile object with LCL pressure and temperatures added. Note the 
+        vertical coordinate in the new profile is reindexed.
     """
     
     level = xarray.Dataset({'pressure': profile.lcl_pressure,
@@ -485,13 +512,15 @@ def insert_level(d, level, coords, vert_dim='model_level_number', fill_value=-99
     Insert a new level into a vertically sorted dataset.
     
     Arguments:
-        d: The data to work on.
-        coords: The coordinate name in d.
-        level: The new values to add; a single layer with values for 'coord' 
+        - d: The data to work on.
+        - coords: The coordinate name in d.
+        - level: The new values to add; a single layer with values for 'coord' 
                and any other variables to add.
-        vert_dim: The vertical dimension to add new level to.
+        - vert_dim: The vertical dimension to add new level to.
         
-    Returns: A new object with the new level added.
+    Returns:
+
+        - A new object with the new level added.
              Note the vertical coordinate in the new profile is reindexed.
     """
     
@@ -530,13 +559,15 @@ def find_intersections(x, a, b, dim, log_x=False):
     Find intersections of two lines that share x coordinates.
     
     Arguments:
-        x: The shared x coordinate values.
-        a: y values for line 1.
-        b: y values for line 2.
-        dim: The dimension along which the coordinates are indexed.
-        log_x: Use a logarithmic transform on x coordinates (e.g. for pressure coords)?
+        - x: The shared x coordinate values.
+        - a: y values for line 1.
+        - b: y values for line 2.
+        - dim: The dimension along which the coordinates are indexed.
+        - log_x: Use a logarithmic transform on x coordinates (e.g. for pressure coords)?
         
-    Returns: a Dataset containing x, y coordinates for all intersections, 
+    Returns:
+
+        - Dataset containing x, y coordinates for all intersections, 
              increasing intersections and decreasing intersections. Note duplicates 
              are not removed.
     """
@@ -602,11 +633,13 @@ def lfc_el(profile, vert_dim='model_level_number'):
     'top' EL with the lowest pressure.
 
     Arguments:
-        profile: The parcel profile, including the LCL, as returned from 
-                 parcel_profile_with_lcl().
-        vert_dim: Vertical dimension name in input arrays.
+        - profile: The parcel profile, including the LCL, as returned from 
+                   parcel_profile_with_lcl().
+        - vert_dim: Vertical dimension name in input arrays.
     
-    Returns: a DataArray with LFC pressure (lfc_pressure) and temperature (lfc_temperature).
+    Returns:
+
+        - DataArray with LFC pressure (lfc_pressure) and temperature (lfc_temperature).
     """
     
     # Find all intersections between parcel and environmental temperatures by pressure.
@@ -694,15 +727,17 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
     Calculate dx * y for points just before and after zeros in y.
     
     Arguments:
-        x: arrays of x along dim.
-        y: arrays of y along dim.
-        dim: Dimension along which to calculate.
-        log_x: Log transform x?
-        start: Zero-based position along dim to look for zeros.
+        - x: arrays of x along dim.
+        - y: arrays of y along dim.
+        - dim: Dimension along which to calculate.
+        - log_x: Log transform x?
+        - start: Zero-based position along dim to look for zeros.
         
-    Returns: a Dataset containin the areas and x coordinates for each rectangular area 
-    calculated before and after each zero; and an array of x coordinates that should be 
-    replaced by the new areas if integrating along x and including these areas afterwards.
+    Returns:
+
+        - a Dataset containin the areas and x coordinates for each rectangular area 
+          calculated before and after each zero; and an array of x coordinates that should be 
+          replaced by the new areas if integrating along x and including these areas afterwards.
     """
     
     # Estimate zero crossings.
@@ -780,32 +815,17 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure, parcel_profi
     
     Uses the bottom (highest-pressure) LFC and the top (lowest-pressure) EL.
 
-    Formula adopted from [Hobbs1977]_.
-
-    .. math:: \text{CAPE} = -R_d \int_{LFC}^{EL} (T_{parcel} - T_{env}) d\text{ln}(p)
-    .. math:: \text{CIN} = -R_d \int_{SFC}^{LFC} (T_{parcel} - T_{env}) d\text{ln}(p)
-    
-    * :math:`CAPE` is convective available potential energy
-    * :math:`CIN` is convective inhibition
-    * :math:`LFC` is pressure of the level of free convection
-    * :math:`EL` is pressure of the equilibrium level
-    * :math:`SFC` is the level of the surface or beginning of parcel path
-    * :math:`R_d` is the gas constant
-    * :math:`g` is gravitational acceleration
-    * :math:`T_{parcel}` is the parcel temperature
-    * :math:`T_{env}` is environment temperature
-    * :math:`p` is atmospheric pressure
-
     Arguments:
-        pressure: Pressure level(s) of interest [hPa].
-        temperature: Temperature at each pressure level [K].
-        lfc_pressure: Pressure of level of free convection [hPa].
-        el_pressure: Pressure of equilibrium level [hPa].
-        parcel_profile: The parcel profile as returned from parcel_profile().
-        vert_dim: The vertical dimension.
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - lfc_pressure: Pressure of level of free convection [hPa].
+        - el_pressure: Pressure of equilibrium level [hPa].
+        - parcel_profile: The parcel profile as returned from parcel_profile().
+        - vert_dim: The vertical dimension.
 
-    Returns: Dataset with convective available potential energy (cape) and 
-             convective inhibition (cin), both in J kg-1.
+    Returns:
+        - Dataset with convective available potential energy (cape) and 
+          convective inhibition (cin), both in J kg-1.
     """
 
     # Where the EL is nan, use the highest (lowest-pressure) value as the EL.
@@ -855,8 +875,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure, parcel_profi
 
     # Set any positive values for CIN to 0.
     cin = cin.where(cin <= 0, other=0)
-    
-    #return(areas_surf_to_lfc)
+
     return xarray.merge([cape, cin])
 
 def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure, parcel_dewpoint,
@@ -867,19 +886,21 @@ def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure, parcel_
     cape_cin_base. Uses the bottom (highest-pressure) LFC and the top (lowest-pressure) EL.
 
     Arguments:
-        pressure: Pressure level(s) of interest [hPa].
-        temperature: Temperature at each pressure level [K].
-        parcel_temperature: The temperature of the starting parcel [K].
-        parcel_pressure: The pressure of the starting parcel [K].
-        parcel_dewpoint: The dewpoint of the starting parcel [K].
-        moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
-                                              moist_adiabat_tables().
-        vert_dim: The vertical dimension.
-        return_profile: Also return the lifted profile?
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - parcel_temperature: The temperature of the starting parcel [K].
+        - parcel_pressure: The pressure of the starting parcel [K].
+        - parcel_dewpoint: The dewpoint of the starting parcel [K].
+        - moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
+                                                moist_adiabat_tables().
+        - vert_dim: The vertical dimension.
+        - return_profile: Also return the lifted profile?
 
-    Returns: Dataset with convective available potential energy (cape) and 
-             convective inhibition (cin), both in J kg-1, plus the lifted profile if 
-             return_profile is True.
+    Returns:
+
+        - Dataset with convective available potential energy (cape) and 
+          convective inhibition (cin), both in J kg-1, plus the lifted profile if 
+          return_profile is True.
     """
     
     # Calculate parcel profile.
@@ -913,16 +934,18 @@ def surface_based_cape_cin(pressure, temperature, dewpoint, moist_adiabat_lookup
     Calculate surface-based CAPE and CIN.
 
     Arguments:
-        pressure: Pressure level(s) of interest [hPa].
-        temperature: Temperature at each pressure level [K].
-        dewpoint: Dewpoint at each level [K].
-        moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
-                                              moist_adiabat_tables().
-        vert_dim: The vertical dimension.
-        return_profile: Also return the lifted profile?
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpoint at each level [K].
+        - moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
+                                                moist_adiabat_tables().
+        - vert_dim: The vertical dimension.
+        - return_profile: Also return the lifted profile?
         
-    Returns: Dataset with convective available potential energy (cape) and 
-             convective inhibition (cin), both in J kg-1.
+    Returns:
+
+        - Dataset with convective available potential energy (cape) and 
+          convective inhibition (cin), both in J kg-1.
     """
     
     # Profile for surface-based parcel ascent.
@@ -943,18 +966,20 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint, moist_adiabat_lookup
     depth above the surface..
 
     Arguments:
-        pressure: Pressure level(s) of interest [hPa].
-        temperature: Temperature at each pressure level [K].
-        moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
-                                              moist_adiabat_tables().
-        dewpoint: Dewpoint at each level [K].
-        vert_dim: The vertical dimension.
-        depth: The depth above the surface (lowest-level pressure) in which to 
-               look for the most unstable parcel.
-        return_profile: Also return the lifted profile?
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
+                                                moist_adiabat_tables().
+        - dewpoint: Dewpoint at each level [K].
+        - vert_dim: The vertical dimension.
+        - depth: The depth above the surface (lowest-level pressure) in which to 
+                 look for the most unstable parcel.
+        - return_profile: Also return the lifted profile?
         
-    Returns: Dataset with convective available potential energy (cape) and 
-             convective inhibition (cin), both in J kg-1.
+    Returns:
+
+        - Dataset with convective available potential energy (cape) and 
+          convective inhibition (cin), both in J kg-1.
     """
     
     assert pressure.name == 'pressure', 'Pressure requires name pressure.'
@@ -986,17 +1011,19 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint, moist_adiabat_lookup, 
     Calculate CAPE and CIN for a fully-mixed lowest x hPa parcel.
 
     Arguments:
-        pressure: Pressure level(s) of interest [hPa].
-        temperature: Temperature at each pressure level [K].
-        moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
-                                              moist_adiabat_tables().
-        dewpoint: Dewpoint at each level [K].
-        vert_dim: The vertical dimension.
-        depth: The depth above the surface (lowest-level pressure) to mix [hPa].
-        return_profile: Also return the lifted profile?
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - moist_adiabat_lookup, moist_adiabats: Adiabat lookup tables generated by 
+                                                moist_adiabat_tables().
+        - dewpoint: Dewpoint at each level [K].
+        - vert_dim: The vertical dimension.
+        - depth: The depth above the surface (lowest-level pressure) to mix [hPa].
+        - return_profile: Also return the lifted profile?
         
-    Returns: Dataset with convective available potential energy (cape) and 
-             convective inhibition (cin), both in J kg-1.
+    Returns:
+
+        - Dataset with convective available potential energy (cape) and 
+          convective inhibition (cin), both in J kg-1.
     """
 
     # Mix the lowest x hPa.
@@ -1028,9 +1055,9 @@ def shift_out_nans(x, dim, pt=0):
     Shift data along a dim to remove all leading nans in that dimension, element-wise.
     
     Arguments:
-        x: The data to work on.
-        dim: The dimension to shift.
-        pt: The point along the dimension to shift 'to'.
+        - x: The data to work on.
+        - dim: The dimension to shift.
+        - pt: The point along the dimension to shift 'to'.
     """
     
     while np.any(np.isnan(x.isel({dim: pt}))):
@@ -1043,18 +1070,15 @@ def lifted_index(profile, vert_dim='model_level_number'):
     """
     Calculate the lifted index. 
     
-    Lifted index formula derived from [Galway1956]_ and referenced by [DoswellSchultz2006]_:
-    
-    .. math:: \text{LI} = T500 - Tp500
-    
-    * :math:`T500` is environmental temperature at 500 hPa.
-    * :math:`Tp500` is temperature of lifted parcel at 500 hPa.
+    Lifted index formula derived from Galway 1956 and referenced by DoswellSchultz 2006.
 
     Arguments:
-        profile: Profile as returned by parcel_profile_with_lcl().
-        vert_dim: The vertical dimension name.
+        - profile: Profile as returned by parcel_profile_with_lcl().
+        - vert_dim: The vertical dimension name.
 
-    Returns: Lifted index at each point [K].
+    Returns:
+
+        - Lifted index at each point [K].
     """
     
     # Interpolate (linearly) to get 500 hPa values.
@@ -1103,10 +1127,10 @@ def log_interp(x, coords, at, dim='model_level_number'):
     Run linear_interp on logged coordinate values.
     
     Arguments:
-        x: Data set to interpolate.
-        coords: Coordinate value for each point in x.
-        at: Points at which to interpolate.
-        dim: The dimension along which to interpolate.
+        - x: Data set to interpolate.
+        - coords: Coordinate value for each point in x.
+        - at: Points at which to interpolate.
+        - dim: The dimension along which to interpolate.
     
     It is assumed that x[coords] is sorted and does not contain duplicate 
     values along the selected dimension.
@@ -1120,13 +1144,15 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index,
     Calculate the deep convective index (DCI) as defined by Kunz 2009.
     
     Arguments:
-        pressure: Pressure values [hPa].
-        temperature: Temperature at each pressure [K].
-        dewpoint: Dewpoint temperature at each pressure.
-        lifted_index: The lifted index.
-        vert_dim: The vertical dimension name.
+        - pressure: Pressure values [hPa].
+        - temperature: Temperature at each pressure [K].
+        - dewpoint: Dewpoint temperature at each pressure.
+        - lifted_index: The lifted index.
+        - vert_dim: The vertical dimension name.
     
-    Returns: the DCI [C] per point.
+    Returns:
+
+        - The DCI [C] per point.
     """
     
     dat = xarray.merge([pressure, temperature, dewpoint])
