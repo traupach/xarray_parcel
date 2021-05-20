@@ -241,7 +241,6 @@ def moist_adiabat_tables(regenerate=False, cache=True,
         - cache: Write cache files?
         - lookup_cache: A cache file (nc) for the adiabat lookup table.
         - adiabats_cache: A cache file (nc) for the adiabats cache.
-        - chunks: Specify to use Dask chunks.
         - **kwargs: Keyword arguments to moist_adiabat_lookup().
                            
     Returns:
@@ -789,6 +788,7 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
         areas['dx'] = np.abs(dx)
         
         if x.chunks is not None:
+            areas = areas.chunk(200)
             areas = areas.chunk({dim: areas[dim].size})
             
         areas = areas.reset_coords(drop=True)
