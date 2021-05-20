@@ -118,7 +118,7 @@ def trapz(dat, x, dim, mask=None):
 
     dx = np.abs(dat[x].diff(dim))
     dx = dx.reset_coords(drop=True)
-    means = dat.rolling({dim: 2}, center=True).mean(keep_attrs=True).dropna(dim, how='all')
+    means = dat.rolling({dim: 2}, center=True).mean(keep_attrs=True)#.dropna(dim, how='all')
     means = means.reset_coords(drop=True)
 
     dx = dx.assign_coords({dim: dx[dim]-1})
@@ -210,8 +210,8 @@ def dry_lapse(pressure, parcel_temperature, parcel_pressure=None, vert_dim='mode
     potential temperature).
 
     Arguments:
-        -pressure: Atmospheric pressure level(s) of interest [hPa].
-        -parcel_temperature: Parcel temperature before lifting (constant or broadcast-able DataArray).
+        - pressure: Atmospheric pressure level(s) of interest [hPa].
+        - parcel_temperature: Parcel temperature before lifting (constant or broadcast-able DataArray).
         - parcel_pressure: Parcel pressure(s) before lifting. Defaults to vertical maximum.
         - vert_dim: The name of the vertical dimension.
 
@@ -232,19 +232,22 @@ def moist_adiabat_tables(regenerate=False, cache=True,
                          adiabats_cache='lookup_tables/adiabats_cache.nc',
                          **kwargs):
     """
-    Calculate moist adiabat lookup tables.
+    Calculate moist adiabat lookup tables. Note that for large datasets,
+    the lookup tables returned here need to be converted to dask arrays
+    before use using .chunk().
     
     Arguments:
         - regenerate: Calculate from scratch and save caches?
         - cache: Write cache files?
         - lookup_cache: A cache file (nc) for the adiabat lookup table.
         - adiabats_cache: A cache file (nc) for the adiabats cache.
+        - chunks: Specify to use Dask chunks.
         - **kwargs: Keyword arguments to moist_adiabat_lookup().
                            
     Returns:
 
         - two DataArrays: 1) a lookup table of pressure/temperature vs. adiabat number, 
-             and 2) a lookup table of adiabat number to temperature by pressure profiles.
+          and 2) a lookup table of adiabat number to temperature by pressure profiles.
     """
     
     if not regenerate:
@@ -280,8 +283,9 @@ def moist_adiabat_lookup(pressure_levels=np.round(np.arange(1100, 0, step=-0.5),
                               temperatures, respectively.
                               
     Returns:
+    
         - two DataArrays: 1) a lookup table of pressure/temperature vs. adiabat number, 
-             and 2) a lookup table of adiabat number to temperature by pressure profiles.
+          and 2) a lookup table of adiabat number to temperature by pressure profiles.
     """
         
     curves = []
@@ -359,6 +363,10 @@ def moist_lapse(pressure, parcel_temperature, moist_adiabat_lookup, moist_adiaba
                                             'temperature': parcel_temperature}, method='nearest')
     adiabat_idx = adiabat_idx.adiabat.reset_coords(drop=True)
     adiabats = moist_adiabats.sel(adiabat=adiabat_idx)
+    
+    if isinstance(pressure, xarray.DataArray) and pressure.chunks is not None:
+        adiabats = adiabats.chunk(200)
+        adiabats = adiabats.chunk({'pressure': adiabats.pressure.size})
     
     # Interpolate the adiabat to get the temperature at each requested pressure.
     out = adiabats.temperature.interp({'pressure': pressure}).reset_coords(drop=True)
@@ -735,7 +743,7 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
         
     Returns:
 
-        - a Dataset containin the areas and x coordinates for each rectangular area 
+        - a Dataset containing the areas and x coordinates for each rectangular area 
           calculated before and after each zero; and an array of x coordinates that should be 
           replaced by the new areas if integrating along x and including these areas afterwards.
     """
@@ -779,7 +787,12 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
         areas['area'] = mean_y * np.abs(dx)
         areas['x'] = x_near_zero - dx/2
         areas['dx'] = np.abs(dx)
-        areas = areas.dropna(dim=dim, how='all').reset_coords(drop=True)
+        
+        if x.chunks is not None:
+            areas = areas.chunk({dim: areas[dim].size})
+            
+        areas = areas.reset_coords(drop=True)
+        #areas = areas.dropna(dim=dim, how='all').reset_coords(drop=True)
         
         return(areas)
         
@@ -788,7 +801,6 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
    
     # Concatenate areas before zeros and areas after zeros.
     areas = xarray.concat([areas_before_zeros, areas_after_zeros], dim=dim)
-    #areas = areas.assign_coords({dim: np.arange(0, len(areas[dim]))})
     
     # Determine start/end points on x axis for each area.
     areas['x_from'] = areas.x - areas.dx/2

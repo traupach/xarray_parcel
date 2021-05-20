@@ -245,7 +245,7 @@ def surface_cape_vector(dat):
                                         moist_adiabats=moist_adiabats)
     
     return(out)
-    
+
 def conv_properties_metpy_serial(dat):
     """
     Calculate convective properties for a set of points, using metpy in serial.
