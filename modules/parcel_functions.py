@@ -137,6 +137,7 @@ def trapz(dat, x, dim, mask=None):
 def bound_pressure(pressure, bound, vert_dim='model_level_number'):
     """
     Calculate the bounding pressure in a layer; returns the closest pressure to the bound.
+    If two pressures are equally distant from the bound, the larger pressure is returned.
     
     Arguments:
         - pressure: Atmospheric pressures [hPa].
@@ -149,7 +150,6 @@ def bound_pressure(pressure, bound, vert_dim='model_level_number'):
     
     diffs = np.abs(pressure - bound)
     bounds = pressure.where(diffs == diffs.min(dim=vert_dim), drop=True)
-    assert np.all(bounds.count(dim=vert_dim) == 1).values, 'Pressure field contains duplicates.'
     bounds = bounds.max(dim=vert_dim).squeeze(drop=True)
     return bounds
 
