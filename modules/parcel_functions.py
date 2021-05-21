@@ -70,7 +70,7 @@ def most_unstable_parcel(dat, depth=300, drop=False, vert_dim='model_level_numbe
                                                      temperature=layer.temperature,
                                                      dewpoint=layer.dewpoint).metpy.dequantify()
     max_eq = eq.max(dim=vert_dim)
-    pres = layer.where(eq == max_eq).pressure.max()
+    pres = layer.where(eq == max_eq).pressure.max(dim=vert_dim)
     assert np.all(layer.where(layer.pressure == pres).count(vert_dim) == 1), ('Vertical ' + 
                                                                               'pressures ' +
                                                                               'not unique.')
