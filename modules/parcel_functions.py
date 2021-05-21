@@ -369,8 +369,7 @@ def moist_lapse(pressure, parcel_temperature, moist_adiabat_lookup, moist_adiaba
         adiabats = adiabats.chunk({'pressure': adiabats.pressure.size})
     
     # Interpolate the adiabat to get the temperature at each requested pressure.
-    #out = adiabats.temperature.interp({'pressure': pressure}).reset_coords(drop=True)
-    out = adiabats.temperature.sel({'pressure': pressure}, method='nearest').reset_coords(drop=True)
+    out = adiabats.temperature.interp({'pressure': pressure}).reset_coords(drop=True)
     return out
 
 def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
