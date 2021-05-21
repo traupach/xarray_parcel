@@ -1226,6 +1226,10 @@ def conv_properties(dat, moist_adiabat_lookup, moist_adiabats, vert_dim='model_l
         depth=100, return_profile=True)
     mixed_cape_cin = mixed_cape_cin.rename({'cape': 'mixed_cape',
                                             'cin': 'mixed_cin'})
+    mixed_cape_cin.mixed_cape.attrs['description'] = ('CAPE for fully-mixed ' +
+                                                      'lowest 100 hPa parcel.')
+    mixed_cape_cin.mixed_cin.attrs['description'] = ('CIN for fully-mixed ' +
+                                                     'lowest 100 hPa parcel')
     
     # CAPE and CIN for most unstable parcel.
     print('Calculating most-unstable CAPE and CIN...')
@@ -1238,6 +1242,13 @@ def conv_properties(dat, moist_adiabat_lookup, moist_adiabats, vert_dim='model_l
         depth=250)
     max_cape_cin = max_cape_cin.rename({'cape': 'max_cape',
                                         'cin': 'max_cin'})
+    
+    max_cape_cin = max_cape_cin.rename({'cape': 'max_cape',                                        
+                                        'cin': 'max_cin'})                                         
+    max_cape_cin.max_cape.attrs['description'] = ('CAPE for most-unstable ' +                      
+                                                  'parcel in lowest 250 hPa.')                     
+    max_cape_cin.max_cin.attrs['description'] = ('CIN for most-unstable ' +                        
+                                                 'parcel in lowest 250 hPa.')                      
     
     # Lifted index using mixed layer profile.
     print('Calculating lifted index...')
