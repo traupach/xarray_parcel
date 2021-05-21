@@ -223,7 +223,7 @@ def surface_cape_vector(dat):
     Use xarray implementations to calculate CAPE and CIN for each point.
     
     Arguments:
-        dat: An xarray Dataset containing dewpoint, pressure, temperature, and 
+        dat: An xarray Dataset containing pressure, temperature, and 
              specific humidity.
             
     Returns: Dataset containing CAPE and CIN values.
