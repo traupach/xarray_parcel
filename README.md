@@ -8,4 +8,4 @@ A [demo notebook](parcel_functions_demo.ipynb) shows testing results and benchma
 
 As stated in the [license](LICENSE) this software is provided as-is without any guarantee of accuracy or fit for purpose.
 
-This implementation was coded by Tim Raupach while a postdoc at the UNSW Sydney [Climate Change Research Centre](https://ccrc.unsw.edu.au).
+This implementation was coded by Tim Raupach, a postdoc at the UNSW Sydney [Climate Change Research Centre](https://ccrc.unsw.edu.au).
