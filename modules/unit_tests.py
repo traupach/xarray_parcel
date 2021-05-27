@@ -13,6 +13,9 @@ import modules.parcel_functions as parcel
 from numpy.testing import assert_almost_equal, assert_array_almost_equal
 from metpy.units import units
 
+# Load xarray-parcel's lookup tables.
+parcel.load_moist_adiabat_lookups()
+
 def run_all_tests():
     """Run all the tests."""
     test_dry_lapse()
@@ -73,8 +76,7 @@ def run_moist_lapse_tests_looser():
     test_moist_lapse_uniform(dp=2)
     print('Moist lapse tests passed.')
 
-def metpy_moist_lapse(pressure, parcel_temperature, moist_adiabat_lookup, 
-                      moist_adiabats, parcel_pressure=None):
+def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None):
     """A wrapper for metpy's moist_lapse()."""
     
     if isinstance(parcel_pressure, xarray.DataArray):
@@ -111,40 +113,30 @@ def test_dry_lapse_2_levels():
 
 def test_moist_lapse():
     """Test moist_lapse calculation."""
-    lookup, adiabats = parcel.moist_adiabat_tables()
     levels = vert_array([1000., 800., 600., 500., 400.], 'hPa')
-    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293.,
-                              moist_adiabat_lookup=lookup, moist_adiabats=adiabats)
+    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293.)
     assert_array_almost_equal(temp, [293, 284.64, 272.81, 264.42, 252.91], 2)
 
 def test_moist_lapse_ref_pres():
     """Test moist_lapse with a reference pressure."""
-    lookup, adiabats = parcel.moist_adiabat_tables()
     levels = vert_array([1050., 800., 600., 500., 400.], 'hPa')
-    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293, parcel_pressure=1000,
-                              moist_adiabat_lookup=lookup, moist_adiabats=adiabats)
+    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293, parcel_pressure=1000)
     assert_array_almost_equal(temp, [294.76, 284.64, 272.81, 264.42, 252.91], 2)
 
 def test_moist_lapse_scalar():
     """Test moist_lapse when given a scalar desired pressure and a reference pressure."""
-    lookup, adiabats = parcel.moist_adiabat_tables()
     levels = vert_array([800.], 'hPa')
-    
-    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293, parcel_pressure=1000,
-                              moist_adiabat_lookup=lookup, moist_adiabats=adiabats)
+    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293, parcel_pressure=1000)
     assert_array_almost_equal(temp, [284.64], 2)
 
 def test_moist_lapse_uniform(dp=7):
     """Test moist_lapse when given a uniform array of pressures."""
-    lookup, adiabats = parcel.moist_adiabat_tables()
     levels = vert_array([900., 900., 900.], 'hPa')
-    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293.15,
-                              moist_adiabat_lookup=lookup, moist_adiabats=adiabats)
+    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293.15)
     assert_almost_equal(temp, np.array([293.15, 293.15, 293.15]), dp)
 
 def test_parcel_profile(dp=2):
     """Test parcel profile calculation."""
-    lookup, adiabats = parcel.moist_adiabat_tables()
     levels = vert_array([1000., 900., 800., 700., 600., 500., 400.], 'hPa')
     true_prof = np.array([303.15, 294.16, 288.026, 283.073, 277.058, 269.402, 258.966])
 
@@ -154,8 +146,7 @@ def test_parcel_profile(dp=2):
     
     prof = parcel.parcel_profile(pressure=levels, parcel_pressure=parcel_pressure,
                                  parcel_temperature=parcel_temperature, 
-                                 parcel_dewpoint=parcel_dewpoint,
-                                 moist_adiabat_lookup=lookup, moist_adiabats=adiabats)
+                                 parcel_dewpoint=parcel_dewpoint)
     
     assert_array_almost_equal(prof.temperature, true_prof, dp)
 
@@ -173,13 +164,10 @@ def test_parcel_profile_lcl(dp=3):
     parcel_pressure = xarray.DataArray(1004, attrs={'units': 'hPa'})
     parcel_dewpoint = xarray.DataArray(21.9+273.15, attrs={'units': 'K'})
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     prof = parcel.parcel_profile(pressure=p, 
                                  parcel_pressure=parcel_pressure, 
                                  parcel_temperature=parcel_temperature,
-                                 parcel_dewpoint=parcel_dewpoint, 
-                                 moist_adiabat_lookup=lookup, 
-                                 moist_adiabats=adiabats)
+                                 parcel_dewpoint=parcel_dewpoint)
     prof = parcel.add_lcl_to_profile(profile=prof, temperature=t)
     
     assert_array_almost_equal(prof.pressure, true_p, dp)
@@ -195,13 +183,10 @@ def test_parcel_profile_saturated(dp=2):
     parcel_pressure = xarray.DataArray(1000, attrs={'units': 'hPa'})
     parcel_dewpoint = xarray.DataArray(23.8+273.15, attrs={'units': 'K'})
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     prof = parcel.parcel_profile(pressure=levels, 
                                  parcel_pressure=parcel_pressure, 
                                  parcel_temperature=parcel_temperature,
-                                 parcel_dewpoint=parcel_dewpoint, 
-                                 moist_adiabat_lookup=lookup, 
-                                 moist_adiabats=adiabats)
+                                 parcel_dewpoint=parcel_dewpoint)
     assert_array_almost_equal(prof.temperature, true_prof, dp)
 
 def test_lcl():
@@ -235,14 +220,11 @@ def test_lfc_basic(dp=2):
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -49.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc = parcel.lfc_el(profile=profile)
     assert_almost_equal(lfc.lfc_pressure, 727.371, dp)
     assert_almost_equal(lfc.lfc_temperature, 9.705+273.15, dp)
@@ -254,14 +236,11 @@ def test_lfc_ml(dp=2):
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -49.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    lookup, adiabats = parcel.moist_adiabat_tables()
     mixed_parcel_prof = parcel.parcel_profile_with_lcl(pressure=levels, 
                                                        temperature=temperatures,
                                                        parcel_pressure=mixed.pressure,
                                                        parcel_temperature=mixed.temperature,
-                                                       parcel_dewpoint=mixed.dewpoint,
-                                                       moist_adiabat_lookup=lookup, 
-                                                       moist_adiabats=adiabats)
+                                                       parcel_dewpoint=mixed.dewpoint)
     lfc = parcel.lfc_el(profile=mixed_parcel_prof)
     assert_almost_equal(lfc.lfc_pressure, 601.225, dp)
     assert_almost_equal(lfc.lfc_temperature, -1.90688+273.15, dp)
@@ -302,14 +281,11 @@ def test_lfc_ml2():
                                      -86.16391754, -86.7653656, -87.34436035, -87.87495422, -88.34281921,
                                      -88.74453735, -89.04680634, -89.26436615])+273.15, 'K')
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    lookup, adiabats = parcel.moist_adiabat_tables()
     mixed_parcel_prof = parcel.parcel_profile_with_lcl(pressure=levels, 
                                                        temperature=temperatures,
                                                        parcel_pressure=mixed.pressure,
                                                        parcel_temperature=mixed.temperature,
-                                                       parcel_dewpoint=mixed.dewpoint,
-                                                       moist_adiabat_lookup=lookup, 
-                                                       moist_adiabats=adiabats)
+                                                       parcel_dewpoint=mixed.dewpoint)
     lfc = parcel.lfc_el(profile=mixed_parcel_prof)
     assert_almost_equal(lfc.lfc_pressure, 962.34, 2)
     assert_almost_equal(lfc.lfc_temperature, 0.767+273.15, 2)
@@ -322,15 +298,12 @@ def test_lfc_intersection(dp=2):
     dewpoints = vert_array(np.array([5., -10., -7., -9., -4.5, -4.2, -3.8, -4.5])+273.15, 'K')
     
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    lookup, adiabats = parcel.moist_adiabat_tables()
     
     # Calculate parcel profile without LCL, as per metpy unit tests.
     mixed_parcel_prof = parcel.parcel_profile(pressure=levels, 
                                               parcel_pressure=mixed.pressure,
                                               parcel_temperature=mixed.temperature,
-                                              parcel_dewpoint=mixed.dewpoint,
-                                              moist_adiabat_lookup=lookup, 
-                                              moist_adiabats=adiabats)
+                                              parcel_dewpoint=mixed.dewpoint)
     mixed_parcel_prof['environment_temperature'] = temperatures
     lfc = parcel.lfc_el(profile=mixed_parcel_prof)
     assert_almost_equal(lfc.lfc_pressure, 981.620, dp)
@@ -340,14 +313,11 @@ def test_no_lfc():
     levels = vert_array([959., 867.9, 779.2, 647.5, 472.5, 321.9, 251.], 'hPa')
     temperatures = vert_array(np.array([22.2, 17.4, 14.6, 1.4, -17.6, -39.4, -52.5])+273.15, 'K')
     dewpoints = vert_array(np.array([9., 4.3, -21.2, -26.7, -31., -53.3, -66.7])+273.15, 'K')
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc = parcel.lfc_el(profile=profile)
     assert(np.isnan(lfc.lfc_pressure))
     assert(np.isnan(lfc.lfc_temperature))
@@ -361,14 +331,11 @@ def test_lfc_inversion(dp=2):
     dewpoints = vert_array(np.array([20.4, 0.4, -0.5, -4.3, -8., -8.2, -9.,
                                      -23.9, -33.3, -54.1, -63.5])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc = parcel.lfc_el(profile=profile)
     
     assert_almost_equal(lfc.lfc_pressure, 705.8806 , dp)
@@ -383,14 +350,11 @@ def test_lfc_equals_lcl():
     dewpoints = vert_array(np.array([18.4, 18.1, 16.6, 15.4, 13.2, 11.4, 9.6,
                                      8.8, 0., -18.6, -22.9])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc = parcel.lfc_el(profile=profile)
     assert_almost_equal(lfc.lfc_pressure, 777.0786, 2)
     assert_almost_equal(lfc.lfc_temperature, 15.8714+273.15, 2)
@@ -409,22 +373,18 @@ def test_sensitive_sounding(dp=2):
                                      -3.0, -15.2, -20.3, -29.1, -27.7, -24.9, -39.5, -41.9,
                                      -51.9, -60.7, -62.7, -65.1, -71.9])+273.15, 'K')
    
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc = parcel.lfc_el(profile=profile)
     
     assert_almost_equal(lfc.lfc_pressure, 947.422, dp)
     assert_almost_equal(lfc.lfc_temperature, 20.498+273.15, dp)
 
     cape_cin = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints, moist_adiabat_lookup=lookup,
-                                             moist_adiabats=adiabats)
+                                             dewpoint=dewpoints)
     assert_almost_equal(cape_cin.cape, 0.1115, 3)
     assert_almost_equal(cape_cin.cin, -6.0866, 3)
 
@@ -435,14 +395,11 @@ def test_lfc_sfc_precision():
                                         15.2, 13.9, 12.8])+273.15, 'K')
     dewpoints = vert_array(np.array([10.6, 8., 7.6, 6.2, 5.7, 4.7, 3.7, 3.2, 3., 2.8])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc = parcel.lfc_el(profile=profile)
     assert(np.isnan(lfc.lfc_pressure))
     assert(np.isnan(lfc.lfc_temperature))
@@ -467,14 +424,11 @@ def test_lfc_pos_area_below_lcl():
                                      -47.90178, -49.97902, -55.02753, -63.06276, -72.53742, -88.81377, -93.54573,
                                      -92.92464, -91.57479])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc = parcel.lfc_el(profile=profile)
     assert(np.isnan(lfc.lfc_pressure))
     assert(np.isnan(lfc.lfc_temperature))
@@ -485,14 +439,11 @@ def test_el():
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -38.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     assert_almost_equal(el.el_pressure, 471.83286, 3)
     assert_almost_equal(el.el_temperature, -11.5603+273.15, 3)
@@ -505,14 +456,11 @@ def test_el_ml():
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -35., -53.2])+273.15, 'K')
     
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    lookup, adiabats = parcel.moist_adiabat_tables()
     mixed_parcel_prof = parcel.parcel_profile_with_lcl(pressure=levels, 
                                                        temperature=temperatures,
                                                        parcel_pressure=mixed.pressure,
                                                        parcel_temperature=mixed.temperature,
-                                                       parcel_dewpoint=mixed.dewpoint,
-                                                       moist_adiabat_lookup=lookup, 
-                                                       moist_adiabats=adiabats)
+                                                       parcel_dewpoint=mixed.dewpoint)
     el = parcel.lfc_el(profile=mixed_parcel_prof)
     assert_almost_equal(el.el_pressure, 350.0561, 3)
     assert_almost_equal(el.el_temperature, -28.36156+273.15, 3)
@@ -523,14 +471,11 @@ def test_no_el():
     temperatures = vert_array(np.array([22.2, 17.4, 14.6, 1.4, -17.6, -39.4, -52.5])+273.15, 'K')
     dewpoints = vert_array(np.array([19., 14.3, -11.2, -16.7, -21., -43.3, -56.7])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
@@ -545,14 +490,11 @@ def test_no_el_multi_crossing():
     dewpoints = vert_array(np.array([19.5, 17.8, 16.7, 16.5, 15.8, 15.7, 15.3, 13.1, 12.9, 11.9, 6.4,
                                      3.2, 2.6, -0.6, -4.4, -6.6, -9.3, -10.4, -10.5])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
@@ -563,14 +505,11 @@ def test_lfc_and_el_below_lcl():
     temperatures = vert_array([273.09723, 268.40173, 263.56207, 260.257, 256.63538, 252.91345], 'K')
     levels = vert_array([1017.16, 950, 900, 850, 800, 750], 'hPa')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
@@ -595,14 +534,11 @@ def test_el_lfc_equals_lcl():
                                      -70., -70., -70., -70., -70., -70., -70., -70.])+273.15, 'K')
     
         
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     
     assert_almost_equal(el.el_pressure, 175.7663, 3)
@@ -620,14 +556,11 @@ def test_el_small_surface_instability():
                                      -10.4, -10.2, -9.8, -9.4, -9., -15.8, -15.7, -14.8, -14.,
                                      -13.9, -17.9])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
@@ -647,14 +580,11 @@ def test_no_el_parcel_colder():
                                      -8.8, -28.1, -18.9, -14.5, -15.2, -15.1, -21.6, -41.5, -45.5,
                                      -29.6, -30.6, -32.1])+273.15, 'K')
                         
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
@@ -679,14 +609,11 @@ def test_el_below_lcl():
                                      -47.90178, -49.97902, -55.02753, -63.06276, -72.53742, -88.81377, -93.54573,
                                      -92.92464, -91.57479])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     el = parcel.lfc_el(profile=profile)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
@@ -698,13 +625,10 @@ def test_cape_cin():
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     
     # Calculate parcel profile without LCL, as per metpy unit tests.
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile(pressure=levels, 
                                     parcel_pressure=levels[0], 
                                     parcel_temperature=temperatures[0],
-                                    parcel_dewpoint=dewpoints[0], 
-                                    moist_adiabat_lookup=lookup, 
-                                    moist_adiabats=adiabats)
+                                    parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
     lfc = parcel.lfc_el(profile=profile)
     cape_cin = parcel.cape_cin_base(pressure=levels, 
@@ -723,13 +647,10 @@ def test_cape_cin_no_el():
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4])+273.15, 'K')
     
     # Calculate parcel profile without LCL, as per metpy unit tests.
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile(pressure=levels, 
                                     parcel_pressure=levels[0], 
                                     parcel_temperature=temperatures[0],
-                                    parcel_dewpoint=dewpoints[0], 
-                                    moist_adiabat_lookup=lookup, 
-                                    moist_adiabats=adiabats)
+                                    parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
     lfc = parcel.lfc_el(profile=profile)
     cape_cin = parcel.cape_cin_base(pressure=levels, 
@@ -748,13 +669,10 @@ def test_cape_cin_no_lfc():
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
         
     # Calculate parcel profile without LCL, as per metpy unit tests.
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile(pressure=levels, 
                                     parcel_pressure=levels[0], 
                                     parcel_temperature=temperatures[0],
-                                    parcel_dewpoint=dewpoints[0], 
-                                    moist_adiabat_lookup=lookup, 
-                                    moist_adiabats=adiabats)
+                                    parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
     lfc = parcel.lfc_el(profile=profile)
     cape_cin = parcel.cape_cin_base(pressure=levels, 
@@ -788,10 +706,8 @@ def test_surface_based_cape_cin():
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -38.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     cape_cin = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints, moist_adiabat_lookup=lookup,
-                                             moist_adiabats=adiabats)
+                                             dewpoint=dewpoints)
 
     assert_almost_equal(cape_cin.cape, 75.0535446, 2)
     assert_almost_equal(cape_cin.cin, -136.685967, 2)
@@ -817,13 +733,10 @@ def test_profile_with_nans():
     dewpoints.name = 'dewpoint'
     
     # Calculate parcel profile without LCL, as per metpy unit tests.
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile(pressure=levels, 
                                     parcel_pressure=levels[0], 
                                     parcel_temperature=temperatures[0],
-                                    parcel_dewpoint=dewpoints[0], 
-                                    moist_adiabat_lookup=lookup, 
-                                    moist_adiabats=adiabats)
+                                    parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
     lfc = parcel.lfc_el(profile=profile)
         
@@ -832,12 +745,12 @@ def test_profile_with_nans():
                                     lfc_pressure=lfc.lfc_pressure,
                                     el_pressure=lfc.el_pressure,
                                     parcel_profile=profile)
-    cape_cin_surf = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, 
-                                                  dewpoint=dewpoints, moist_adiabat_lookup=lookup,
-                                                  moist_adiabats=adiabats)
-    cape_cin_unstable = parcel.most_unstable_cape_cin(pressure=levels, temperature=temperatures, 
-                                                      dewpoint=dewpoints, moist_adiabat_lookup=lookup,
-                                                      moist_adiabats=adiabats)
+    cape_cin_surf = parcel.surface_based_cape_cin(pressure=levels, 
+                                                  temperature=temperatures, 
+                                                  dewpoint=dewpoints)
+    cape_cin_unstable = parcel.most_unstable_cape_cin(pressure=levels, 
+                                                      temperature=temperatures, 
+                                                      dewpoint=dewpoints)
     
     assert(np.isnan(lfc.lfc_pressure))
     assert_almost_equal(cape_cin_base.cape, 0, 0)
@@ -856,10 +769,8 @@ def test_most_unstable_cape_cin_surface():
     temperatures.name = 'temperature'
     dewpoints.name = 'dewpoint'
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     cape_cin = parcel.most_unstable_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints, moist_adiabat_lookup=lookup,
-                                             moist_adiabats=adiabats)
+                                             dewpoint=dewpoints)
     
     assert_almost_equal(cape_cin.cape, 75.0535446, 2)
     assert_almost_equal(cape_cin.cin, -136.685967, 2)
@@ -890,10 +801,8 @@ def test_mixed_layer_cape_cin():
     """Test the calculation of mixed layer cape/cin."""
     levels, temperatures, dewpoints = multiple_intersections()
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     cape_cin = parcel.mixed_layer_cape_cin(pressure=levels, temperature=temperatures, 
-                                           dewpoint=dewpoints, moist_adiabat_lookup=lookup,
-                                           moist_adiabats=adiabats)
+                                           dewpoint=dewpoints)
     
     assert_almost_equal(cape_cin.cape, 987.7323, 2)
     assert_almost_equal(cape_cin.cin, -20.6727628, 2)
@@ -919,14 +828,11 @@ def test_lfc_not_below_lcl():
                                      12.1, 11.8, 11.4, 11.3, 11., 9.3, 10., 8.7, 8.9,
                                      8.6, 8.1, 7.6, 7., 6.5, 6., 5.4])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc_el = parcel.lfc_el(profile=profile)
     assert_almost_equal(lfc_el.lfc_pressure, 811.618879, 3)
     assert_almost_equal(lfc_el.lfc_temperature, 6.48644650+273.15, 3)
@@ -959,14 +865,11 @@ def test_multiple_lfcs_el_simple():
     """Test sounding with multiple LFCs."""
     levels, temperatures, dewpoints = multiple_intersections()
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
-                                             parcel_dewpoint=dewpoints[0], 
-                                             moist_adiabat_lookup=lookup, 
-                                             moist_adiabats=adiabats)
+                                             parcel_dewpoint=dewpoints[0])
     lfc_el = parcel.lfc_el(profile=profile)
     
     assert_almost_equal(lfc_el.lfc_pressure, 884.14790, 3)
@@ -980,13 +883,10 @@ def test_cape_cin_custom_profile():
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -38.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
    
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile(pressure=levels, 
                                     parcel_pressure=levels[0], 
                                     parcel_temperature=temperatures[0],
-                                    parcel_dewpoint=dewpoints[0], 
-                                    moist_adiabat_lookup=lookup, 
-                                    moist_adiabats=adiabats)
+                                    parcel_dewpoint=dewpoints[0])
     profile['temperature'] = profile.temperature + 5
     profile['environment_temperature'] = temperatures
     
@@ -1012,13 +912,10 @@ def test_parcel_profile_below_lcl():
     parcel_temperature = xarray.DataArray(3.2+273.15, attrs={'units': 'K'})
     parcel_dewpoint = xarray.DataArray(-10.8+273.15, attrs={'units': 'K'})
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile(pressure=pressure, 
                                     parcel_pressure=pressure[0], 
                                     parcel_temperature=parcel_temperature,
-                                    parcel_dewpoint=parcel_dewpoint, 
-                                    moist_adiabat_lookup=lookup, 
-                                    moist_adiabats=adiabats)
+                                    parcel_dewpoint=parcel_dewpoint)
     
     assert_array_almost_equal(profile.temperature, truth, 6)
 
@@ -1054,10 +951,8 @@ def test_cape_cin_value_error():
                                      -35.9, -26.7, -37.7, -43.1, -33.9, -40.9, -46.1, -34.9, -33.9,
                                      -33.7, -33.3, -42.5, -50.3, -49.7, -49.5, -58.3, -61.3])+273.15, 'K')
     
-    lookup, adiabats = parcel.moist_adiabat_tables()
     cape_cin = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints, moist_adiabat_lookup=lookup,
-                                             moist_adiabats=adiabats)
+                                             dewpoint=dewpoints)
     
     assert_almost_equal(cape_cin.cape, 2007.040698, 3)
     assert_almost_equal(cape_cin.cin, 0.0, 3)
@@ -1103,13 +998,10 @@ def test_lifted_index():
                                     -57.5])+273.15, 'K')
     
     # Use profile without lcl as per metpy unit test.
-    lookup, adiabats = parcel.moist_adiabat_tables()
     profile = parcel.parcel_profile(pressure=pressure, 
                                     parcel_pressure=pressure[0], 
                                     parcel_temperature=temperature[0],
-                                    parcel_dewpoint=dewpoint[0], 
-                                    moist_adiabat_lookup=lookup, 
-                                    moist_adiabats=adiabats)
+                                    parcel_dewpoint=dewpoint[0])
     profile['environment_temperature'] = temperature
     
     li = parcel.lifted_index(profile=profile)
