@@ -9,3 +9,7 @@ A [demo notebook](parcel_functions_demo.ipynb) shows testing results and benchma
 As stated in the [license](LICENSE) this software is provided as-is without any guarantee of accuracy or fit for purpose.
 
 This implementation was coded by Tim Raupach, a postdoc at the UNSW Sydney [Climate Change Research Centre](https://ccrc.unsw.edu.au).
+
+## Notes:
+
+- In `add_lcl_to_profile`, a linear interpolation for temperature on pressure coordinates is used, in order to match MetPy's implementation. In future it may be more accurate to replace the linear interpolation with an interpolation on log-transformed coordinates.
