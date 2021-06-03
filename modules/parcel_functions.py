@@ -37,8 +37,8 @@ def lookup_tables_loaded():
     """
     Ensure that lookup tables are loaded and throw an error if not.
     """
-    assert this.moist_adiabat_lookup is not None, 'Call load_adiabat_lookups first.'
-    assert this.moist_adiabats is not None, 'Call load_adiabat_lookups first.'
+    assert this.moist_adiabat_lookup is not None, 'Call load_moist_adiabat_lookups first.'
+    assert this.moist_adiabats is not None, 'Call load_moist_adiabat_lookups first.'
         
 def get_layer(dat, depth=100, drop=False, vert_dim='model_level_number',
               interpolate=True):
@@ -135,7 +135,7 @@ def mixed_layer(dat, depth=100, vert_dim='model_level_number'):
         - xarray with mixed values of each data variable.
     """
     
-    layer = get_layer(dat=dat, depth=depth, drop=True)
+    layer = get_layer(dat=dat, depth=depth, drop=True, vert_dim=vert_dim)
     
     pressure_depth = np.abs(layer.pressure.min(vert_dim) - 
                             layer.pressure.max(vert_dim))
@@ -231,7 +231,8 @@ def mixed_parcel(pressure, temperature, dewpoint, depth=100,
     
     # Mix theta and mixing ratio over the layer.
     assert pressure.name is not None, 'pressure requires name pressure.'
-    mp = mixed_layer(xarray.merge([pressure, theta, mixing_ratio]), depth=depth)
+    mp = mixed_layer(xarray.merge([pressure, theta, mixing_ratio]), depth=depth,
+                     vert_dim=vert_dim)
         
     # Convert potential temperature back to temperature.
     mp['temperature'] = (mp.theta *
@@ -595,6 +596,10 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
     if not temperature is None:
         environment = xarray.Dataset({'temperature': temperature,
                                       'pressure': profile.pressure})
+        
+        # Note: we use linear_interp here even though we are working in pressure
+        # coordinates, in order to match MetPy's implementation. In future it 
+        # may be more accurate to use log_interp.
         temp_at_level = xarray.Dataset({'temperature':
                                         linear_interp(x=temperature,
                                                       coords=profile.pressure,
@@ -948,7 +953,7 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
     return areas, mask
    
 def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
-                  parcel_profile, vert_dim='model_level_number'):
+                  parcel_profile, vert_dim='model_level_number', **kwargs):
     """
     Calculate CAPE and CIN.
 
@@ -1037,7 +1042,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
 
 def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure,
              parcel_dewpoint, vert_dim='model_level_number', 
-             return_profile=False):
+             return_profile=False, **kwargs):
     """
     Calculate CAPE and CIN; wraps finding of LFC and parcel profile
     and call to cape_cin_base. Uses the bottom (highest-pressure) LFC
@@ -1052,6 +1057,7 @@ def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure,
         - parcel_dewpoint: The dewpoint of the starting parcel [K].
         - vert_dim: The vertical dimension.
         - return_profile: Also return the lifted profile?
+        - **kwargs: Optional extra arguments to cape_cin_base.
 
     Returns:
 
@@ -1069,14 +1075,15 @@ def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure,
                                       vert_dim=vert_dim)
     
     # Calculate LFC and EL.
-    parcel_lfc_el = lfc_el(profile=profile)
+    parcel_lfc_el = lfc_el(profile=profile, vert_dim=vert_dim)
     
     # Calculate CAPE and CIN.
     cape_cin = cape_cin_base(pressure=profile.pressure,
                              temperature=profile.environment_temperature, 
                              lfc_pressure=parcel_lfc_el.lfc_pressure, 
                              el_pressure=parcel_lfc_el.el_pressure, 
-                             parcel_profile=profile)
+                             parcel_profile=profile,
+                             vert_dim=vert_dim, **kwargs)
     
     if return_profile:
         return cape_cin, xarray.merge([profile, parcel_lfc_el])
@@ -1084,7 +1091,8 @@ def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure,
         return cape_cin
     
 def surface_based_cape_cin(pressure, temperature, dewpoint,
-                           vert_dim='model_level_number', return_profile=False):
+                           vert_dim='model_level_number',
+                           return_profile=False, **kwargs):
     """
     Calculate surface-based CAPE and CIN.
 
@@ -1095,6 +1103,7 @@ def surface_based_cape_cin(pressure, temperature, dewpoint,
         - dewpoint: Dewpoint at each level [K].
         - vert_dim: The vertical dimension.
         - return_profile: Also return the lifted profile?
+        - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
 
@@ -1109,11 +1118,51 @@ def surface_based_cape_cin(pressure, temperature, dewpoint,
                     parcel_pressure=pressure.isel({vert_dim: 0}),
                     parcel_dewpoint=dewpoint.isel({vert_dim: 0}),
                     vert_dim=vert_dim,
-                    return_profile=return_profile)
+                    return_profile=return_profile,
+                    **kwargs)
+
+def from_most_unstable_parcel(pressure, temperature, dewpoint,
+                              vert_dim='model_level_number', depth=300):
+    """
+    Select pressure and temperature data at and above the most unstable
+    parcel within the first x hPa above the surface.
+    
+    Arguments:
+
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpoint at each level [K].
+        - vert_dim: The vertical dimension.
+        - depth: The depth above the surface (lowest-level pressure)
+                 in which to look for the most unstable parcel.
+        - return_profile: Also return the lifted profile?
+        
+    Returns:
+
+        - subset pressure, subset temperature, subset dewpoint, 
+          and most unstable layer.
+    """
+    
+    assert pressure.name == 'pressure', 'Pressure requires name pressure.'
+    assert temperature.name == 'temperature', ('Temperature requires ' +
+                                               'name temperature.')
+    assert dewpoint.name == 'dewpoint', 'Dewpoint requires name dewpoint.'
+        
+    dat = xarray.merge([pressure, temperature, dewpoint])
+        
+    # Find the most unstable layer in the lowest 'depth' hPa.
+    unstable_layer = most_unstable_parcel(dat=dat, depth=depth, 
+                                          vert_dim=vert_dim)
+        
+    # Subset to layers at or above the most unstable parcels.
+    dat = dat.where(pressure <= unstable_layer.pressure, drop=True)
+    dat = shift_out_nans(x=dat, name='pressure', dim=vert_dim)
+    
+    return dat.pressure, dat.temperature, dat.dewpoint, unstable_layer
 
 def most_unstable_cape_cin(pressure, temperature, dewpoint,
                            vert_dim='model_level_number', depth=300,
-                           return_profile=False):
+                           return_profile=False, **kwargs):
     """
     Calculate CAPE and CIN for the most unstable parcel within a given 
     depth above the surface..
@@ -1127,6 +1176,7 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
         - depth: The depth above the surface (lowest-level pressure)
                  in which to look for the most unstable parcel.
         - return_profile: Also return the lifted profile?
+        - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
 
@@ -1134,23 +1184,9 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
           convective inhibition (cin), both in J kg-1.
     """
     
-    assert pressure.name == 'pressure', 'Pressure requires name pressure.'
-    assert temperature.name == 'temperature', ('Temperature requires ' +
-                                               'name temperature.')
-    assert dewpoint.name == 'dewpoint', 'Dewpoint requires name dewpoint.'
-        
-    # Find the most unstable layer in the lowest 'depth' hPa.
-    unstable_layer = most_unstable_parcel(dat=xarray.merge([pressure,
-                                                            temperature,
-                                                            dewpoint]), 
-                                          depth=depth, vert_dim=vert_dim)
-        
-    # Subset to layers at or above the most unstable parcels.
-    above_unstable = pressure <= unstable_layer.pressure
-    pressure = shift_out_nans(pressure.where(above_unstable, drop=True),
-                              dim=vert_dim)
-    temperature = shift_out_nans(temperature.where(above_unstable, drop=True),
-                                 dim=vert_dim)
+    pressure, temperature, dewpoint, unstable_layer = from_most_unstable_parcel(
+        pressure=pressure, temperature=temperature, dewpoint=dewpoint,
+        vert_dim=vert_dim, depth=depth)
         
     return cape_cin(pressure=pressure,
                     temperature=temperature,
@@ -1158,11 +1194,55 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
                     parcel_pressure=unstable_layer.pressure,
                     parcel_dewpoint=unstable_layer.dewpoint,
                     vert_dim=vert_dim,
-                    return_profile=return_profile)    
+                    return_profile=return_profile,
+                    **kwargs)    
         
+def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number', 
+              depth=100):
+    """
+    Fully mix the lowest x hPa in vertical profiles.
+    
+    Arguments:
+        
+        - pressure: Pressure level(s) [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpoint at each level [K].
+        - vert_dim: The vertical dimension.
+        - depth: The depth above the surface (lowest-level pressure)
+          to mix [hPa].
+    
+    Returns:
+    
+        - pressure, temperature, and dewpoint profiles and 
+          the mixed layer parcel.
+    """
+    
+    # Mix the lowest x hPa.
+    mp = mixed_parcel(pressure=pressure, temperature=temperature, 
+                      dewpoint=dewpoint, depth=depth, vert_dim=vert_dim)
+    
+    # Remove layers that were part of the mixed layer. 
+    assert pressure.name == 'pressure', 'Pressure requires name pressure.'
+    assert temperature.name == 'temperature', ('Temperature requires ' +
+                                               'name temperature.')
+    assert dewpoint.name == 'dewpoint', 'Dewpoint requires name dewpoint.'
+        
+    dat = xarray.merge([pressure, temperature, dewpoint])
+    dat = dat.where(pressure < (pressure.max(dim=vert_dim) - depth), drop=True)
+    dat = shift_out_nans(x=dat, name='pressure', dim=vert_dim)
+    
+    # Add the mixed layer to the bottom of the profiles.
+    mp[vert_dim] = dat.pressure[vert_dim].min() - 1
+    pressure = xarray.concat([mp.pressure, dat.pressure], dim=vert_dim)
+    temperature = xarray.concat([mp.temperature, dat.temperature], dim=vert_dim)
+    dewpoint = xarray.concat([mp.dewpoint, dat.dewpoint], dim=vert_dim)
+    
+    return pressure, temperature, dewpoint, mp
+    
 def mixed_layer_cape_cin(pressure, temperature, dewpoint, 
                          vert_dim='model_level_number',
-                         depth=100, return_profile=False):
+                         depth=100, return_profile=False,
+                         **kwargs):
     """
     Calculate CAPE and CIN for a fully-mixed lowest x hPa parcel.
 
@@ -1175,6 +1255,7 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint,
         - depth: The depth above the surface (lowest-level pressure)
           to mix [hPa].
         - return_profile: Also return the lifted profile?
+        - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
 
@@ -1182,31 +1263,22 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint,
           and convective inhibition (cin), both in J kg-1.
     """
 
-    # Mix the lowest x hPa.
-    mp = mixed_parcel(pressure=pressure, temperature=temperature, 
-                      dewpoint=dewpoint, depth=depth)
+    pressure, temperature, dewpoint, mp = mix_layer(pressure=pressure,
+                                                    temperature=temperature,
+                                                    dewpoint=dewpoint,
+                                                    vert_dim=vert_dim,
+                                                    depth=depth)
     
-    # Remove layers that were part of the mixed layer.
-    higher_levels = pressure < (pressure.max(dim=vert_dim) - depth)
-    pressure = shift_out_nans(pressure.where(higher_levels, drop=True),
-                              dim=vert_dim)
-    temperature = shift_out_nans(temperature.where(higher_levels, drop=True),
-                                 dim=vert_dim)
-    
-    # Add the mixed layer to the bottom of the profiles.
-    mp[vert_dim] = pressure[vert_dim].min() - 1
-    pressure = xarray.concat([mp.pressure, pressure], dim=vert_dim)
-    temperature = xarray.concat([mp.temperature, temperature], dim=vert_dim)
-        
     return cape_cin(pressure=pressure,
                     temperature=temperature,
                     parcel_temperature=mp.temperature, 
                     parcel_pressure=mp.pressure,
                     parcel_dewpoint=mp.dewpoint,
                     vert_dim=vert_dim,
-                    return_profile=return_profile)
+                    return_profile=return_profile,
+                    **kwargs)
         
-def shift_out_nans(x, dim, pt=0):
+def shift_out_nans(x, name, dim):
     """
     Shift data along a dim to remove all leading nans in that
     dimension, element-wise.
@@ -1214,14 +1286,15 @@ def shift_out_nans(x, dim, pt=0):
     Arguments:
 
         - x: The data to work on.
+        - name: The name within data in which to look for nans.
         - dim: The dimension to shift.
-        - pt: The point along the dimension to shift 'to'.
+        - pt: The index along the dimension to shift 'to'.
 
     """
     
-    while np.any(np.isnan(x.isel({dim: pt}))):
+    while np.any(np.isnan(x[name].isel({dim: 0}))):
         shifted = x.shift({dim: -1})
-        x = shifted.where(np.isnan(x.isel({dim: pt})), other=x)
+        x = shifted.where(np.isnan(x[name].isel({dim: 0})), other=x)
         
     return x
 
@@ -1242,9 +1315,9 @@ def lifted_index(profile, vert_dim='model_level_number'):
         - Lifted index at each point [K].
     """
     
-    # Interpolate (linearly) to get 500 hPa values.
-    dat = linear_interp(x=profile, coords=profile.pressure, at=500,
-                        dim=vert_dim)
+    # Interpolate to get 500 hPa values.
+    dat = log_interp(x=profile, coords=profile.pressure, at=500, 
+                     dim=vert_dim)
     dat = dat.reset_coords(drop=True)
     
     # Calculate lifted index.
@@ -1324,8 +1397,8 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index,
     
     dat = xarray.merge([pressure, temperature, dewpoint])
     
-    # Interpolate (linearly) to get 850 hPa values.
-    dat = linear_interp(x=dat, coords=dat.pressure, at=850, dim=vert_dim)
+    # Interpolate to get 850 hPa values.
+    dat = log_interp(x=dat, coords=dat.pressure, at=850, dim=vert_dim)
     dat = dat.reset_coords(drop=True)
     
     # Convert temperature and dewpoint from K to C.
@@ -1345,6 +1418,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
     
        - dat: An xarray Dataset containing pressure, temperature, and 
               specific humidity.
+       - vert_dim: The name of the vertical dimension in the dataset.
             
     Returns:
     
@@ -1368,6 +1442,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
         pressure=dat.pressure,
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
+        vert_dim=vert_dim,
         depth=250)
     max_cape_cin = max_cape_cin.rename({'cape': 'max_cape',
                                         'cin': 'max_cin'})
@@ -1382,6 +1457,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
         pressure=dat.pressure,
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
+        vert_dim=vert_dim,
         depth=100, return_profile=True)
     mixed_cape_cin = mixed_cape_cin.rename({'cape': 'mixed_cape',
                                             'cin': 'mixed_cin'})
@@ -1392,14 +1468,15 @@ def conv_properties(dat, vert_dim='model_level_number'):
         
     # Lifted index using mixed layer profile.
     print('Calculating lifted index...')
-    li = lifted_index(profile=mixed_profile)
+    li = lifted_index(profile=mixed_profile, vert_dim=vert_dim)
     
     # Deep convective index for mixed layer profile.
     print('Calculating deep convective index...')
     dci = deep_convective_index(pressure=dat.pressure, 
                                 temperature=dat.temperature,
                                 dewpoint=dat.dewpoint, 
-                                lifted_index=li.lifted_index)
+                                lifted_index=li.lifted_index,
+                                vert_dim=vert_dim)
    
     out = xarray.merge([mixed_cape_cin,
                         max_cape_cin,
@@ -1407,3 +1484,158 @@ def conv_properties(dat, vert_dim='model_level_number'):
                         dci])
     
     return out
+
+def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500, 
+               vert_dim='model_level_number'):
+    """
+    Calculate the observed environmental lapse rate between two pressure levels.
+    
+    Arguments:
+        
+        - pressure: Pressure at each level [hPa].
+        - temperature: Temperature at each level [K].
+        - height: Height of each level [m]
+        - from_pressure: Pressure level to calculate from [hPa].
+        - to_pressure: Pressure level to calculate to [hPa].
+        - vert_dim: Name of vertical dimension.
+        
+    Returns:
+    
+        - Lapse rate between two levels at each point [K/km].
+    """
+    
+    from_temperature = log_interp(x=temperature, coords=pressure, 
+                                  at=from_pressure, dim=vert_dim)
+    to_temperature = log_interp(x=temperature, coords=pressure, 
+                                at=to_pressure, dim=vert_dim)
+    from_height = log_interp(x=height, coords=pressure, 
+                             at=from_pressure, dim=vert_dim)/1000
+    to_height = log_interp(x=height, coords=pressure, 
+                           at=to_pressure, dim=vert_dim)/1000
+        
+    lapse = (to_temperature - from_temperature) / (to_height - from_height)
+    lapse.attrs['long_name'] = f'{from_pressure}-{to_pressure} hPa lapse rate'
+    lapse.attrs['units'] = 'K/km'
+    
+    return lapse
+
+def freezing_level_height(temperature, height, vert_dim='model_level_number'):
+    """
+    Calculate the freezing level height.
+    
+    Arguments:
+    
+        - temperature: Temperature at each level [K].
+        - height: Height of each level [m].
+        - vert_dim: Name of vertical dimension.
+        
+    Returns:
+    
+        - Freezing level height [m].
+    """
+    
+    flh = linear_interp(x=height, coords=temperature, at=273.15, dim=vert_dim)
+    flh.attrs['long_name'] = f'Freezing level height'
+    flh.attrs['units'] = 'm'
+    flh.name = 'freezing_level'
+    return flh
+
+def isobar_temperature(pressure, temperature, isobar, vert_dim='model_level_number'):
+    """
+    Calculate the temperature at a given pressure.
+    
+    Arguments:
+    
+        - pressure: Pressure at each level [hPa].
+        - temperature: Temperature at each level [K].
+        - isobar: Pressure at which to find temperatures [hPa].
+        - vert_dim: Name of vertical dimension.
+        
+    Returns:
+    
+        - Isobar temperature [K].
+    """
+    
+    temp = log_interp(x=temperature, coords=pressure, at=isobar, dim=vert_dim)
+    temp.attrs['long_name'] = f'Temperature at {isobar} hPa.'
+    temp.attrs['units'] = 'K'
+    return temp
+
+def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_height=6000):
+    """
+    Calculate wind shear.
+    
+    Arguments:
+        - surface_wind_u, surface_wind_v: U and V components of surface wind.
+        - wind_u, wind_v: U and V components of above-surface wind.
+        - height: The height of every coordinate in wind_u and wind_v.
+        - shear_height: The wind height to subtract from surface wind [m].
+        
+    Returns:
+    
+        - Wind shear = wind at shear_height - wind at surface.
+    """
+    
+    wind_high_u = linear_interp(x=wind_u, coords=height, at=shear_height)
+    wind_high_v = linear_interp(x=wind_v, coords=height, at=shear_height)
+    
+    shear_u = wind_high_u - surface_wind_u
+    shear_u.name = 'shear_u'
+    shear_u.attrs['long_name'] = f'Surface to {shear_height} m wind shear, U component.'
+    
+    shear_v = wind_high_v - surface_wind_v
+    shear_v.name = 'shear_v'
+    shear_v.attrs['long_name'] = f'Surface to {shear_height} m wind shear, V component.'
+    
+    shear_magnitude = np.sqrt(shear_u**2 + shear_v**2)
+    shear_magnitude.name = 'shear_magnitude'
+    shear_magnitude.attrs['long_name'] = f'Surface to {shear_height} m bulk wind shear.'
+
+    out = xarray.merge([shear_u, shear_v, shear_magnitude])
+    for v in ['shear_u', 'shear_v', 'shear_magnitude']:
+        out[v].attrs['units'] = 'm s-1'
+        
+    return out
+
+def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh):
+    """
+    Calculate the significant hail parameter, as given at
+    https://www.spc.noaa.gov/exper/mesoanalysis/help/help_sigh.html
+    
+    Arguments:
+    
+        - mucape: Most unstable parcel CAPE [J kg-1].
+        - mixing_ratio: Mixing ratio of the most unstable parcel [kg kg-1].
+        - lapse: 700-500 hPa lapse rate [K/km].
+        - temp_500: Temperature at 500 hPa [K].
+        - shear: 0-6 km bulk wind shear [m s-1].
+        - flh: Freezing level height [m].
+        
+    Returns:
+    
+        - Significant hail parameter.
+    """
+
+    # Convert from kg kg-1 to g kg-1
+    mixing_ratio = mixing_ratio * 1e3
+
+    # Use positive values of lapse rate.
+    lapse = -lapse
+
+    # Convert temperatures from K to C.
+    temp_500 = temp_500 - 273.15
+
+    # Apply thresholds on inputs to identify where SHIP is valid.
+    shear = shear.where(shear >= 7).where(shear <= 27)
+    mixing_ratio = mixing_ratio.where(mixing_ratio >= 11).where(mixing_ratio <= 13.6)
+    temp_500 = temp_500.where(temp_500 <= -5.5, other=-5.5)
+
+    # Calculate basic SHIP value.
+    ship = mucape * mixing_ratio * lapse * -temp_500 * shear / 42000000 
+
+    # Three conditions change the value of SHIP.
+    ship = ship.where(mucape >= 1300, other=ship * (mucape/1300))
+    ship = ship.where(lapse >= 5.8, other=ship * (lapse/5.8))
+    ship = ship.where(flh >= 2400, other=ship * (flh/2400))
+    
+    return ship

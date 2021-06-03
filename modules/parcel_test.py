@@ -329,9 +329,9 @@ def conv_properties_metpy_serial(dat):
             
             # Interpolate profiles to get temperatures at 500 hPa and 850 hPa.
             int_pres = [500, 850] * units.hPa
-            int_mixed_profile = metpy.interpolate.interpolate_1d(int_pres, p, mixed_profile)
-            int_temp = metpy.interpolate.interpolate_1d(int_pres, p, t)
-            int_dewpoint = metpy.interpolate.interpolate_1d(int_pres, p, td)
+            int_mixed_profile = metpy.interpolate.log_interpolate_1d(int_pres, p, mixed_profile)
+            int_temp = metpy.interpolate.log_interpolate_1d(int_pres, p, t)
+            int_dewpoint = metpy.interpolate.log_interpolate_1d(int_pres, p, td)
 
             # Lifted index using fully-mixed lowest 100 hPa mixed parcel.
             lifted_index = metpy.calc.lifted_index(pressure=int_pres, 
