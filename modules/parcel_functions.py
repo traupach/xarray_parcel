@@ -1632,10 +1632,14 @@ def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh
 
     # Calculate basic SHIP value.
     ship = mucape * mixing_ratio * lapse * -temp_500 * shear / 42000000 
-
+    
     # Three conditions change the value of SHIP.
     ship = ship.where(mucape >= 1300, other=ship * (mucape/1300))
     ship = ship.where(lapse >= 5.8, other=ship * (lapse/5.8))
     ship = ship.where(flh >= 2400, other=ship * (flh/2400))
+    
+    # Metadata.
+    ship.attrs['long_name'] = 'Significant hail parameter'
+    ship.attrs['units'] = 'J kg-2 g K^2 km-1 m s-1'
     
     return ship
