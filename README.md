@@ -12,4 +12,5 @@ This implementation was coded by Tim Raupach, a postdoc at the UNSW Sydney [Clim
 
 ## Notes:
 
+- It is important to note that moist adiabats are **approximated** in this implementation by using a lookup table for speed. See the [demo notebook](parcel_functions_demo.ipynb) for details.
 - In `add_lcl_to_profile`, a linear interpolation for temperature on pressure coordinates is used, in order to match MetPy's implementation. In future it may be more accurate to replace the linear interpolation with an interpolation on log-transformed coordinates.
