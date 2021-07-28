@@ -1328,7 +1328,7 @@ def lifted_index(profile, vert_dim='model_level_number'):
     
     return li
     
-def linear_interp(x, coords, at, dim='model_level_number'):
+def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     """
     Perform simple linear interpolation to get values at specified
     points.
@@ -1339,6 +1339,7 @@ def linear_interp(x, coords, at, dim='model_level_number'):
         - coords: Coordinate value for each point in x.
         - at: Points at which to interpolate.
         - dim: The dimension along which to interpolate.
+        - keep_attrs: Keep attributes?
     
     It is assumed that x[coords] is sorted and does not contain
     duplicate values along the selected dimension.
@@ -1358,6 +1359,9 @@ def linear_interp(x, coords, at, dim='model_level_number'):
     
     # When the interpolated x exists already, return it.
     res = x_before.where(x_before == x_after, other=res)
+
+    if keep_attrs:
+        res.attrs = x.attrs
     
     return(res)
 
