@@ -6,7 +6,7 @@ The main module file is `modules/parcel_functions.py`. Testing functions are in 
 
 A [demo notebook](parcel_functions_demo.ipynb) shows testing results and benchmarking results, and explains how moist adiabats are approximated using a lookup table.
 
-**Important note:** the vertical dimension of input data must be specified must relate to the model level number from the surface to the top of the model (meaning the first element along the vertical dimension is the lowest atmospheric level). 
+**Important note:** the vertical dimension of input data must be specified must relate to the model level number from the surface to the top of the model (meaning the first element along the vertical dimension is the lowest atmospheric level). Use the function `valid_data` to check that data is valid for use with this package.
 
 **As stated in the [license](LICENSE) this software is provided as-is without any guarantee of accuracy or fit for purpose.**
 
