@@ -533,7 +533,7 @@ def benchmark_cape(dat, points=[2,4,8,16,32,64]):
     sr_times = []
     
     for p in points:
-        pts = dat.isel(latitude=slice(0, p), longitude=slice(0, p))
+        pts = dat.isel(latitude=slice(0, p), longitude=slice(0, p)).load()
         xr, xr_time = time_function(func=surface_cape_vector, dat=pts)
         sr, sr_time = time_function(func=surface_cape_serial, dat=pts)
     

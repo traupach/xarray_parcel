@@ -1228,6 +1228,9 @@ def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressur
                                  el_pressure=parcel_lfc_el.el_pressure, 
                                  parcel_temperature=profile.temperature,
                                  vert_dim=vert_dim, **kwargs)
+        
+        cape_cin.attrs['correction'] = ('Virtual temperature correction not used ' + 
+                                        'in CAPE/CIN calculations.')
     else:
         # Calculate LFC and EL.
         parcel_lfc_el = lfc_el(pressure=profile.pressure,
@@ -1243,7 +1246,10 @@ def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressur
                                  lfc_pressure=parcel_lfc_el.lfc_pressure, 
                                  el_pressure=parcel_lfc_el.el_pressure, 
                                  parcel_temperature=profile.virtual_temperature,
-                                 vert_dim=vert_dim, **kwargs)   
+                                 vert_dim=vert_dim, **kwargs)
+        
+        cape_cin.attrs['correction'] = ('Virtual temperature correction used ' + 
+                                        'in CAPE/CIN calculations.')
     
     if return_profile:
         return cape_cin, xarray.merge([profile, parcel_lfc_el])
