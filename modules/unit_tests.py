@@ -78,26 +78,40 @@ def run_moist_lapse_tests_looser():
 
 def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None):
     """A wrapper for metpy's moist_lapse()."""
-    
+
+    vert_coords = None
     if isinstance(parcel_pressure, xarray.DataArray):
         parcel_pressure = parcel_pressure.values
     if isinstance(pressure, xarray.DataArray):
+        vert_coords = pressure.model_level_number
         pressure = pressure.values
     if isinstance(parcel_temperature, xarray.DataArray):
         parcel_temperature = parcel_temperature.values
         
     if not parcel_pressure is None:
         parcel_pressure = parcel_pressure * units.hPa
-        
-    return metpy.calc.moist_lapse(pressure=pressure*units.hPa, 
-                                  temperature=parcel_temperature*units.K, 
-                                  reference_pressure=parcel_pressure).m
+    
+    res = metpy.calc.moist_lapse(pressure=pressure*units.hPa, 
+                                 temperature=parcel_temperature*units.K, 
+                                 reference_pressure=parcel_pressure).m
+    res = vert_array(res, units='K')
+    
+    if not vert_coords is None:
+        res = res.assign_coords({'model_level_number': vert_coords})
+    res.attrs['long_name'] = 'Moist lapse rate temperature'
+    return res
 
 def vert_array(x, units):
-    """Make an xarray object with one dimension."""
-    return xarray.DataArray(x, dims='model_level_number', 
-                            coords={'model_level_number': np.arange(1,len(x)+1)},
-                            attrs={'units': units})
+    """Make an xarray object with one dimension."""  
+    try:
+        res = xarray.DataArray(x, dims='model_level_number', 
+                               coords={'model_level_number': np.arange(1,len(x)+1)},
+                               attrs={'units': units})
+    except TypeError:
+        res = xarray.DataArray([x], dims='model_level_number', 
+                               coords={'model_level_number': [1]},
+                               attrs={'units': units})    
+    return res
 
 def test_dry_lapse():
     """Test dry_lapse calculation."""
@@ -168,7 +182,9 @@ def test_parcel_profile_lcl(dp=3):
                                  parcel_pressure=parcel_pressure, 
                                  parcel_temperature=parcel_temperature,
                                  parcel_dewpoint=parcel_dewpoint)
-    prof = parcel.add_lcl_to_profile(profile=prof, temperature=t)
+    environment = xarray.Dataset({'temperature': t,
+                                  'pressure': prof.pressure})
+    prof = parcel.add_lcl_to_profile(profile=prof, environment=environment)
     
     assert_array_almost_equal(prof.pressure, true_p, dp)
     assert_array_almost_equal(prof.environment_temperature, true_t, dp)
@@ -222,10 +238,15 @@ def test_lfc_basic(dp=2):
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(lfc.lfc_pressure, 727.371, dp)
     assert_almost_equal(lfc.lfc_temperature, 9.705+273.15, dp)
 
@@ -236,12 +257,17 @@ def test_lfc_ml(dp=2):
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -49.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    mixed_parcel_prof = parcel.parcel_profile_with_lcl(pressure=levels, 
-                                                       temperature=temperatures,
-                                                       parcel_pressure=mixed.pressure,
-                                                       parcel_temperature=mixed.temperature,
-                                                       parcel_dewpoint=mixed.dewpoint)
-    lfc = parcel.lfc_el(profile=mixed_parcel_prof)
+    profile = parcel.parcel_profile_with_lcl(pressure=levels, 
+                                             temperature=temperatures,
+                                             dewpoint=dewpoints,
+                                             parcel_pressure=mixed.pressure,
+                                             parcel_temperature=mixed.temperature,
+                                             parcel_dewpoint=mixed.dewpoint)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(lfc.lfc_pressure, 601.225, dp)
     assert_almost_equal(lfc.lfc_temperature, -1.90688+273.15, dp)
 
@@ -281,12 +307,17 @@ def test_lfc_ml2():
                                      -86.16391754, -86.7653656, -87.34436035, -87.87495422, -88.34281921,
                                      -88.74453735, -89.04680634, -89.26436615])+273.15, 'K')
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    mixed_parcel_prof = parcel.parcel_profile_with_lcl(pressure=levels, 
-                                                       temperature=temperatures,
-                                                       parcel_pressure=mixed.pressure,
-                                                       parcel_temperature=mixed.temperature,
-                                                       parcel_dewpoint=mixed.dewpoint)
-    lfc = parcel.lfc_el(profile=mixed_parcel_prof)
+    profile = parcel.parcel_profile_with_lcl(pressure=levels, 
+                                             temperature=temperatures,
+                                             dewpoint=dewpoints,
+                                             parcel_pressure=mixed.pressure,
+                                             parcel_temperature=mixed.temperature,
+                                             parcel_dewpoint=mixed.dewpoint)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(lfc.lfc_pressure, 962.34, 2)
     assert_almost_equal(lfc.lfc_temperature, 0.767+273.15, 2)
 
@@ -300,12 +331,16 @@ def test_lfc_intersection(dp=2):
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
     
     # Calculate parcel profile without LCL, as per metpy unit tests.
-    mixed_parcel_prof = parcel.parcel_profile(pressure=levels, 
-                                              parcel_pressure=mixed.pressure,
-                                              parcel_temperature=mixed.temperature,
-                                              parcel_dewpoint=mixed.dewpoint)
-    mixed_parcel_prof['environment_temperature'] = temperatures
-    lfc = parcel.lfc_el(profile=mixed_parcel_prof)
+    profile = parcel.parcel_profile(pressure=levels,
+                                    parcel_pressure=mixed.pressure,
+                                    parcel_temperature=mixed.temperature,
+                                    parcel_dewpoint=mixed.dewpoint)
+    profile['environment_temperature'] = temperatures
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(lfc.lfc_pressure, 981.620, dp)
 
 def test_no_lfc():
@@ -315,10 +350,15 @@ def test_no_lfc():
     dewpoints = vert_array(np.array([9., 4.3, -21.2, -26.7, -31., -53.3, -66.7])+273.15, 'K')
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(lfc.lfc_pressure))
     assert(np.isnan(lfc.lfc_temperature))
 
@@ -333,10 +373,15 @@ def test_lfc_inversion(dp=2):
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     
     assert_almost_equal(lfc.lfc_pressure, 705.8806 , dp)
     assert_almost_equal(lfc.lfc_temperature, 10.6232+273.15, dp)
@@ -352,10 +397,15 @@ def test_lfc_equals_lcl():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(lfc.lfc_pressure, 777.0786, 2)
     assert_almost_equal(lfc.lfc_temperature, 15.8714+273.15, 2)
 
@@ -375,16 +425,23 @@ def test_sensitive_sounding(dp=2):
    
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     
     assert_almost_equal(lfc.lfc_pressure, 947.422, dp)
     assert_almost_equal(lfc.lfc_temperature, 20.498+273.15, dp)
 
-    cape_cin = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints)
+    cape_cin = parcel.surface_based_cape_cin(pressure=levels, 
+                                             temperature=temperatures, 
+                                             dewpoint=dewpoints,
+                                             virtual_temperature_correction=False)
     assert_almost_equal(cape_cin.cape, 0.1115, 3)
     assert_almost_equal(cape_cin.cin, -6.0866, 3)
 
@@ -397,10 +454,15 @@ def test_lfc_sfc_precision():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(lfc.lfc_pressure))
     assert(np.isnan(lfc.lfc_temperature))
 
@@ -426,10 +488,15 @@ def test_lfc_pos_area_below_lcl():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(lfc.lfc_pressure))
     assert(np.isnan(lfc.lfc_temperature))
 
@@ -441,10 +508,15 @@ def test_el():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(el.el_pressure, 471.83286, 3)
     assert_almost_equal(el.el_temperature, -11.5603+273.15, 3)
 
@@ -456,12 +528,17 @@ def test_el_ml():
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -35., -53.2])+273.15, 'K')
     
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    mixed_parcel_prof = parcel.parcel_profile_with_lcl(pressure=levels, 
-                                                       temperature=temperatures,
-                                                       parcel_pressure=mixed.pressure,
-                                                       parcel_temperature=mixed.temperature,
-                                                       parcel_dewpoint=mixed.dewpoint)
-    el = parcel.lfc_el(profile=mixed_parcel_prof)
+    profile = parcel.parcel_profile_with_lcl(pressure=levels, 
+                                             temperature=temperatures,
+                                             dewpoint=dewpoints,
+                                             parcel_pressure=mixed.pressure,
+                                             parcel_temperature=mixed.temperature,
+                                             parcel_dewpoint=mixed.dewpoint)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(el.el_pressure, 350.0561, 3)
     assert_almost_equal(el.el_temperature, -28.36156+273.15, 3)
 
@@ -473,10 +550,15 @@ def test_no_el():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
 
@@ -492,10 +574,15 @@ def test_no_el_multi_crossing():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
     
@@ -507,10 +594,15 @@ def test_lfc_and_el_below_lcl():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
     assert(np.isnan(el.lfc_pressure))
@@ -536,10 +628,15 @@ def test_el_lfc_equals_lcl():
         
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     
     assert_almost_equal(el.el_pressure, 175.7663, 3)
     assert_almost_equal(el.el_temperature, -57.03994+273.15, 3)
@@ -558,10 +655,15 @@ def test_el_small_surface_instability():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
 
@@ -582,10 +684,15 @@ def test_no_el_parcel_colder():
                         
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
     
@@ -611,10 +718,16 @@ def test_el_below_lcl():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    el = parcel.lfc_el(profile=profile)
+    
+    el = parcel.lfc_el(pressure=profile.pressure,
+                       parcel_temperature=profile.temperature, 
+                       temperature=profile.environment_temperature, 
+                       lcl_pressure=profile.lcl_pressure, 
+                       lcl_temperature=profile.lcl_temperature)
     assert(np.isnan(el.el_pressure))
     assert(np.isnan(el.el_temperature))
     
@@ -630,12 +743,19 @@ def test_cape_cin():
                                     parcel_temperature=temperatures[0],
                                     parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
-    lfc = parcel.lfc_el(profile=profile)
+    
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     cape_cin = parcel.cape_cin_base(pressure=levels, 
                                     temperature=temperatures,
+                                    dewpoint=dewpoints,
                                     lfc_pressure=lfc.lfc_pressure,
                                     el_pressure=lfc.el_pressure,
-                                    parcel_profile=profile)
+                                    parcel_temperature=profile.temperature,
+                                    virtual_temperature_correction=False)
                                 
     assert_almost_equal(cape_cin.cape, 75.05354, 2)
     assert_almost_equal(cape_cin.cin, -89.890078, 2)
@@ -652,12 +772,18 @@ def test_cape_cin_no_el():
                                     parcel_temperature=temperatures[0],
                                     parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
-    lfc = parcel.lfc_el(profile=profile)
+    
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     cape_cin = parcel.cape_cin_base(pressure=levels, 
                                     temperature=temperatures,
                                     lfc_pressure=lfc.lfc_pressure,
                                     el_pressure=lfc.el_pressure,
-                                    parcel_profile=profile)
+                                    parcel_temperature=profile.temperature,
+                                    virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 0.08610409, 2)
     assert_almost_equal(cape_cin.cin, -89.8900784, 2)
@@ -674,12 +800,17 @@ def test_cape_cin_no_lfc():
                                     parcel_temperature=temperatures[0],
                                     parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     cape_cin = parcel.cape_cin_base(pressure=levels, 
                                     temperature=temperatures,
                                     lfc_pressure=lfc.lfc_pressure,
                                     el_pressure=lfc.el_pressure,
-                                    parcel_profile=profile)
+                                    parcel_temperature=profile.temperature,
+                                    virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 0.0, 2)
     assert_almost_equal(cape_cin.cin, 0.0, 2)
@@ -706,8 +837,10 @@ def test_surface_based_cape_cin():
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -38.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     
-    cape_cin = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints)
+    cape_cin = parcel.surface_based_cape_cin(pressure=levels, 
+                                             temperature=temperatures, 
+                                             dewpoint=dewpoints,
+                                             virtual_temperature_correction=False)
 
     assert_almost_equal(cape_cin.cape, 75.0535446, 2)
     assert_almost_equal(cape_cin.cin, -136.685967, 2)
@@ -738,19 +871,26 @@ def test_profile_with_nans():
                                     parcel_temperature=temperatures[0],
                                     parcel_dewpoint=dewpoints[0])
     profile['environment_temperature'] = temperatures
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
         
     cape_cin_base = parcel.cape_cin_base(pressure=levels, 
-                                    temperature=temperatures,
-                                    lfc_pressure=lfc.lfc_pressure,
-                                    el_pressure=lfc.el_pressure,
-                                    parcel_profile=profile)
+                                         temperature=temperatures,
+                                         lfc_pressure=lfc.lfc_pressure,
+                                         el_pressure=lfc.el_pressure,
+                                         parcel_temperature=profile.temperature,
+                                         virtual_temperature_correction=False)
     cape_cin_surf = parcel.surface_based_cape_cin(pressure=levels, 
                                                   temperature=temperatures, 
-                                                  dewpoint=dewpoints)
+                                                  dewpoint=dewpoints,
+                                                  virtual_temperature_correction=False)
     cape_cin_unstable = parcel.most_unstable_cape_cin(pressure=levels, 
                                                       temperature=temperatures, 
-                                                      dewpoint=dewpoints)
+                                                      dewpoint=dewpoints,
+                                                      virtual_temperature_correction=False)
     
     assert(np.isnan(lfc.lfc_pressure))
     assert_almost_equal(cape_cin_base.cape, 0, 0)
@@ -769,8 +909,10 @@ def test_most_unstable_cape_cin_surface():
     temperatures.name = 'temperature'
     dewpoints.name = 'dewpoint'
     
-    cape_cin = parcel.most_unstable_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints)
+    cape_cin = parcel.most_unstable_cape_cin(pressure=levels, 
+                                             temperature=temperatures, 
+                                             dewpoint=dewpoints,
+                                             virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 75.0535446, 2)
     assert_almost_equal(cape_cin.cin, -136.685967, 2)
@@ -780,7 +922,8 @@ def test_most_unstable_cape_cin():
     pressure = np.array([1000., 959., 867.9, 850., 825., 800.]) * units.mbar
     temperature = np.array([18.2, 22.2, 17.4, 10., 0., 15]) * units.celsius
     dewpoint = np.array([19., 19., 14.3, 0., -10., 0.]) * units.celsius
-    mucape, mucin = most_unstable_cape_cin(pressure, temperature, dewpoint)
+    mucape, mucin = most_unstable_cape_cin(pressure, temperature, dewpoint,
+                                           virtual_temperature_correction=False)
     assert_almost_equal(mucape, 157.11404 * units('joule / kilogram'), 4)
     assert_almost_equal(mucin, -31.8406578 * units('joule / kilogram'), 4)
 
@@ -801,8 +944,10 @@ def test_mixed_layer_cape_cin():
     """Test the calculation of mixed layer cape/cin."""
     levels, temperatures, dewpoints = multiple_intersections()
     
-    cape_cin = parcel.mixed_layer_cape_cin(pressure=levels, temperature=temperatures, 
-                                           dewpoint=dewpoints)
+    cape_cin = parcel.mixed_layer_cape_cin(pressure=levels, 
+                                           temperature=temperatures, 
+                                           dewpoint=dewpoints,
+                                           virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 987.7323, 2)
     assert_almost_equal(cape_cin.cin, -20.6727628, 2)
@@ -830,10 +975,15 @@ def test_lfc_not_below_lcl():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc_el = parcel.lfc_el(profile=profile)
+    lfc_el = parcel.lfc_el(pressure=profile.pressure,
+                           parcel_temperature=profile.temperature, 
+                           temperature=profile.environment_temperature, 
+                           lcl_pressure=profile.lcl_pressure, 
+                           lcl_temperature=profile.lcl_temperature)
     assert_almost_equal(lfc_el.lfc_pressure, 811.618879, 3)
     assert_almost_equal(lfc_el.lfc_temperature, 6.48644650+273.15, 3)
 
@@ -867,10 +1017,15 @@ def test_multiple_lfcs_el_simple():
     
     profile = parcel.parcel_profile_with_lcl(pressure=levels, 
                                              temperature=temperatures,
+                                             dewpoint=dewpoints,
                                              parcel_pressure=levels[0], 
                                              parcel_temperature=temperatures[0],
                                              parcel_dewpoint=dewpoints[0])
-    lfc_el = parcel.lfc_el(profile=profile)
+    lfc_el = parcel.lfc_el(pressure=profile.pressure,
+                           parcel_temperature=profile.temperature, 
+                           temperature=profile.environment_temperature, 
+                           lcl_pressure=profile.lcl_pressure, 
+                           lcl_temperature=profile.lcl_temperature)
     
     assert_almost_equal(lfc_el.lfc_pressure, 884.14790, 3)
     assert_almost_equal(lfc_el.lfc_temperature, 13.95707016+273.15, 3)
@@ -890,12 +1045,17 @@ def test_cape_cin_custom_profile():
     profile['temperature'] = profile.temperature + 5
     profile['environment_temperature'] = temperatures
     
-    lfc = parcel.lfc_el(profile=profile)
+    lfc = parcel.lfc_el(pressure=profile.pressure,
+                        parcel_temperature=profile.temperature, 
+                        temperature=profile.environment_temperature, 
+                        lcl_pressure=profile.lcl_pressure, 
+                        lcl_temperature=profile.lcl_temperature)
     cape_cin = parcel.cape_cin_base(pressure=levels, 
                                     temperature=temperatures,
                                     lfc_pressure=lfc.lfc_pressure,
                                     el_pressure=lfc.el_pressure,
-                                    parcel_profile=profile)
+                                    parcel_temperature=profile.temperature,
+                                    virtual_temperature_correction=False)
 
     assert_almost_equal(cape_cin.cape, 1440.463208696, 2)
     assert_almost_equal(cape_cin.cin, 0.0, 2)
@@ -951,8 +1111,10 @@ def test_cape_cin_value_error():
                                      -35.9, -26.7, -37.7, -43.1, -33.9, -40.9, -46.1, -34.9, -33.9,
                                      -33.7, -33.3, -42.5, -50.3, -49.7, -49.5, -58.3, -61.3])+273.15, 'K')
     
-    cape_cin = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, 
-                                             dewpoint=dewpoints)
+    cape_cin = parcel.surface_based_cape_cin(pressure=levels,
+                                             temperature=temperatures, 
+                                             dewpoint=dewpoints,
+                                             virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 2007.040698, 3)
     assert_almost_equal(cape_cin.cin, 0.0, 3)

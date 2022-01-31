@@ -67,6 +67,7 @@ def get_layer(dat, depth=100, drop=False, vert_dim='model_level_number',
         interp_level = log_interp(x=dat, at=top_pressure, 
                                   coords=dat.pressure, dim=vert_dim)
         interp_level['pressure'] = top_pressure
+        
         dat = insert_level(d=dat, level=interp_level, coords='pressure',
                            vert_dim=vert_dim)
     else:
@@ -161,6 +162,8 @@ def trapz(dat, x, dim, mask=None):
         - Integrated value along the axis.
     """
 
+    assert np.all(np.abs(dat[dim].diff(dim=dim)) == 1), 'Index increments must all be 1.'
+    
     dx = np.abs(dat[x].diff(dim))
     dx = dx.reset_coords(drop=True)
     means = dat.rolling({dim: 2}, center=True).mean(keep_attrs=True)
@@ -454,6 +457,9 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
     # pressure.
     out = adiabats.temperature.interp(
         {'pressure': pressure}).reset_coords(drop=True)
+    out.attrs['long_name'] = 'Moist lapse rate temperature'
+    out.attrs['units'] = 'K'
+    
     return out
 
 def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
@@ -474,10 +480,20 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     press_lcl, temp_lcl = metpy.calc.lcl(pressure=parcel_pressure, 
                                          temperature=parcel_temperature, 
                                          dewpoint=parcel_dewpoint)
+    
+    # Calculate virtual temperature at LCL (at LCL, temperature == dewpoint).
+    lcl_mixing_ratio = mixing_ratio(temperature=temp_lcl, 
+                                    dewpoint=temp_lcl,
+                                    pressure=press_lcl)
+    lcl_virt_temp = virtual_temperature(temperature=temp_lcl,
+                                        mixing_ratio=lcl_mixing_ratio)
+    
     out = xarray.Dataset({'lcl_pressure': (parcel_temperature.dims,
                                            press_lcl.m),
                           'lcl_temperature': (parcel_temperature.dims,
-                                              temp_lcl.m)})
+                                              temp_lcl.m),
+                          'lcl_virtual_temperature': (parcel_temperature.dims,
+                                                      lcl_virt_temp.m)})
     
     out.lcl_pressure.attrs['long_name'] = ('Lifting condensation ' +
                                            'level pressure')
@@ -485,8 +501,39 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     out.lcl_temperature.attrs['long_name'] = ('Lifting condensation ' +
                                               'level temperature')
     out.lcl_temperature.attrs['units'] = 'K'
+    out.lcl_virtual_temperature.attrs['long_name'] = ('Lifting condensation ' +
+                                                      'level virtual temperature')
+    out.lcl_virtual_temperature.attrs['units'] = 'K'
     
     return out
+
+def mixing_ratio(temperature, dewpoint, pressure):
+    """
+    Calculate mixing ratio.
+    
+    Arguments:
+        - temperature: Temperature [K].
+        - dewpoint: Dewpoint [K].
+        - pressure: Pressure [hPa].
+    
+    Returns:
+        
+        - Mixing ratio [kg kg-1].
+    """
+
+    relative_humidity = metpy.calc.relative_humidity_from_dewpoint(
+        temperature=temperature,
+        dewpoint=dewpoint)
+    res = metpy.calc.mixing_ratio_from_relative_humidity(
+        pressure=pressure,
+        temperature=temperature,
+        relative_humidity=relative_humidity)
+    
+    if isinstance(res, xarray.DataArray):
+        res = res.metpy.dequantify()
+        res.attrs['units'] = 'kg kg-1'
+        
+    return res
 
 def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoint):
     """
@@ -519,22 +566,66 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
     below_lcl = dry_lapse(pressure=pressure, 
                           parcel_temperature=parcel_temperature, 
                           parcel_pressure=parcel_pressure)
-
+    
+    # Along the dry adiabat the parcel's mixing ratio remains constant.
+    parcel_mixing_ratio = mixing_ratio(temperature=parcel_temperature*units.K,
+                                       dewpoint=parcel_dewpoint*units.K,
+                                       pressure=parcel_pressure*units.hPa)
+    
     # Above the LCL parcels follow the moist adiabats from the LCL
     # temp/pressure.
     above_lcl = moist_lapse(pressure=pressure, 
                             parcel_temperature=out.lcl_temperature,
                             parcel_pressure=out.lcl_pressure)
-
+    
+    # Above the LCL, the mixing ratio is the saturation mixing ratio.
+    mixing_ratios = metpy.calc.saturation_mixing_ratio(
+        total_press=pressure, 
+        temperature=above_lcl)
+    mixing_ratios = mixing_ratios.metpy.dequantify()
+    mixing_ratios.name = 'mixing_ratio'
+    
+    # Temperatures follow the dry/moist adiabat curves.
     out['temperature'] = below_lcl.where(pressure >= out.lcl_pressure,
                                          other=above_lcl)
     out.temperature.attrs['long_name'] = 'Lifted parcel temperature'
     out.temperature.attrs['units'] = 'K'
+    
+    # Apply the virtual temperature correction. 
+    mixing_ratios = mixing_ratios.where(pressure <= out.lcl_pressure,
+                                        other=parcel_mixing_ratio)
+    out['virtual_temperature'] = virtual_temperature(
+        temperature=out.temperature,
+        mixing_ratio=mixing_ratios)
 
     out = out.reset_coords(drop=True)
     return out
 
-def parcel_profile_with_lcl(pressure, temperature, parcel_pressure,
+def virtual_temperature(temperature, mixing_ratio, epsilon=0.608):
+    """Calculate virtual temperature as per Doswell & Rasmussen 1994.
+    
+    Note, uses epsilon=0.608 from Doswell & Rasmussen 1994 by default.
+    
+    Arguments:
+    
+        - temperature: Air temperature [K].
+        - mixing_ratio: Mixing ratio [g g-1].
+        - epsilon: Value of epsilon constant to use.
+        
+    Returns:
+    
+        - The virtual temperature(s).
+    """
+    
+    res = temperature * (1 + epsilon*mixing_ratio)
+    
+    if isinstance(res, xarray.DataArray):
+        res.attrs['units'] = 'K'
+        res.attrs['long_name'] = 'Virtual temperature'
+        
+    return res
+
+def parcel_profile_with_lcl(pressure, temperature, dewpoint, parcel_pressure,
                             parcel_temperature, parcel_dewpoint,
                             vert_dim='model_level_number'):
     """
@@ -544,6 +635,7 @@ def parcel_profile_with_lcl(pressure, temperature, parcel_pressure,
 
         - pressure: Pressure levels to calculate on [hPa].
         - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpoint at each pressure level [K].
         - parcel_pressure: Pressure of the parcel [hPa].
         - parcel_temperature: Temperature of the parcel [K].
         - parcel_dewpoint: Dewpoint of the parcel [K].
@@ -561,11 +653,25 @@ def parcel_profile_with_lcl(pressure, temperature, parcel_pressure,
                              parcel_pressure=parcel_pressure,
                              parcel_temperature=parcel_temperature,
                              parcel_dewpoint=parcel_dewpoint)
+    
+    # Calculate environmental virtual temperatures.
+    mix_ratio = mixing_ratio(temperature=temperature, 
+                             dewpoint=dewpoint,
+                             pressure=pressure)
+    virtual_temp = virtual_temperature(temperature=temperature,
+                                       mixing_ratio=mix_ratio)
+    
+    environment = xarray.Dataset({'temperature': temperature,
+                                  'virtual_temperature': virtual_temp,
+                                  'pressure': profile.pressure})
+    environment.temperature.attrs['long_name'] = 'Environment temperature'
+    environment.temperature.attrs['units'] = 'K'
+    
     return add_lcl_to_profile(profile=profile, vert_dim=vert_dim,
-                              temperature=temperature)
+                              environment=environment)
 
 def add_lcl_to_profile(profile, vert_dim='model_level_number',
-                       temperature=None):
+                       environment=None):
     """
     Add the LCL to a profile.
     
@@ -573,9 +679,8 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
 
         - profile: Profile as returned from parcel_profile().
         - vert_dim: The vertical dimension to add the LCL pressure/temp to.
-        - temperature: Environmental temperatures. If provided,
-                       interpolate environment temperature for the LCL
-                       and return as 'env_temperature'.
+        - environment: The environment (e.g. temperature/virtual temp) 
+                       to interpolate at the lcl_pressure.
         
     Returns:
 
@@ -584,36 +689,37 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
           reindexed.
     """
     
+    # The new level to add. 
     level = xarray.Dataset({'pressure': profile.lcl_pressure,
-                            'temperature': profile.lcl_temperature})
+                            'temperature': profile.lcl_temperature,
+                            'virtual_temperature': profile.lcl_virtual_temperature})
     out = insert_level(d=profile, level=level, coords='pressure',
                        vert_dim=vert_dim)
     out['lcl_pressure'] = profile.lcl_pressure
     out['lcl_temperature'] = profile.lcl_temperature
-    out.temperature.attrs['long_name'] = 'Temperature with LCL'
-    out.pressure.attrs['long_name']  = 'Pressure with LCL'
+    out['lcl_virtual_temperature'] = profile.lcl_virtual_temperature
+    out.temperature.attrs['long_name'] = 'Temperature at LCL'
+    out.pressure.attrs['long_name']  = 'Pressure at LCL'
+    out.lcl_virtual_temperature.attrs['long name'] = 'Virtual temperature at LCL'
 
-    if not temperature is None:
-        environment = xarray.Dataset({'temperature': temperature,
-                                      'pressure': profile.pressure})
-        
+    if not environment is None:
         # Note: we use linear_interp here even though we are working in pressure
         # coordinates, in order to match MetPy's implementation. In future it 
         # may be more accurate to use log_interp.
-        temp_at_level = xarray.Dataset({'temperature':
-                                        linear_interp(x=temperature,
-                                                      coords=profile.pressure,
-                                                      at=level.pressure,
-                                                      dim=vert_dim),
-                                        'pressure': level.pressure})
-
-        environment = insert_level(d=environment, level=temp_at_level, 
-                                   coords='pressure', vert_dim=vert_dim)
-        out['environment_temperature'] = environment.temperature
-        out.environment_temperature.attrs['long_name'] = ('Environment ' +
-                                                          'temperature')
-        out.environment_temperature.attrs['units'] = 'K'
-    
+        interp_level = linear_interp(x=environment,
+                                     coords=environment.pressure,
+                                     at=level.pressure,
+                                     dim=vert_dim)
+        assert interp_level == level.pressure, 'Level pressure mismatch'
+        
+        new_environment = insert_level(d=environment, level=interp_level, 
+                                       coords='pressure', vert_dim=vert_dim)
+        
+        for k in environment.keys():
+            if k != 'pressure':
+                out['environment_'+k] = new_environment[k]
+                out['environment_'+k].attrs = environment[k].attrs
+        
     return out
 
 def insert_level(d, level, coords, vert_dim='model_level_number',
@@ -624,16 +730,31 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
     Arguments:
 
         - d: The data to work on.
-        - coords: The coordinate name in d.
         - level: The new values to add; a single layer with values for
                  'coord' and any other variables to add.
+        - coords: The coordinate name in d.
         - vert_dim: The vertical dimension to add new level to.
         
     Returns:
 
         - A new object with the new level added.
-             Note the vertical coordinate in the new profile is reindexed.
+    
+    Note the vertical coordinate in the new profile is reindexed.
     """
+    
+    assert np.all(np.abs(d[vert_dim].diff(dim=vert_dim)) == 1), ('Vert_dim index increments ' + 
+                                                                 'must all be 1.')
+    
+    if np.any(d[coords] == level[coords]):
+        # Level to insert already exists. Ensure no values are different.
+        existing_level = d.where(d[coords] == level[coords], drop=True)[level.variables.keys()]
+        
+        # Warning; this loop may be slow, but it is called in rare cases.
+        for k in level.keys():
+            assert np.all(np.abs(existing_level[k] - level[k]) < 1e-3), ('Replacement level differs ' + 
+                                                                         'from existing level by more ' + 
+                                                                         'than 1e-3 for ' + k)
+        return d
     
     # To conserve nans in the original dataset, replace them with
     # fill_value in the coordinate array.
@@ -687,6 +808,8 @@ def find_intersections(x, a, b, dim, log_x=False):
           duplicates are not removed.
     """
 
+    assert np.all(np.abs(x[dim].diff(dim=dim) == 1)), 'Index increments must all be 1.'
+    
     if log_x:
         x = np.log(x)
 
@@ -739,7 +862,8 @@ def find_intersections(x, a, b, dim, log_x=False):
 
     return out
 
-def lfc_el(profile, vert_dim='model_level_number'):
+def lfc_el(pressure, parcel_temperature, temperature, 
+           lcl_pressure, lcl_temperature, vert_dim='model_level_number'):
     """
     Calculate the level of free convection (LFC) and equilibrium level
     (EL).
@@ -753,10 +877,16 @@ def lfc_el(profile, vert_dim='model_level_number'):
     highest pressure; the EL returned is the 'top' EL with the lowest
     pressure.
 
+    Note that which temperature to use (virtual or real) is up to 
+    the calling function.
+
     Arguments:
 
-        - profile: The parcel profile, including the LCL, as returned
-                   from parcel_profile_with_lcl().
+        - pressure: Pressure at each level [hPa].
+        - parcel_temperature: Temperature of the parcel at each level [K].
+        - temperature: Temperature of the environment at each level [K].
+        - lcl_pressure: Pressure at the LCL [hPa].
+        - lcl_temperature: Temperature at the LCL [K].
         - vert_dim: Vertical dimension name in input arrays.
     
     Returns:
@@ -767,25 +897,25 @@ def lfc_el(profile, vert_dim='model_level_number'):
     
     # Find all intersections between parcel and environmental
     # temperatures by pressure.
-    intersections = find_intersections(x=profile.pressure,
-                                       a=profile.temperature, 
-                                       b=profile.environment_temperature, 
+    intersections = find_intersections(x=pressure,
+                                       a=parcel_temperature, 
+                                       b=temperature, 
                                        dim=vert_dim,
                                        log_x=True)
 
     # Find intersections again, ignoring first level.
     intersections_above = find_intersections(
-        x=profile.pressure.isel({vert_dim: slice(1,None)}),
-        a=profile.temperature.isel({vert_dim: slice(1,None)}),
-        b=profile.environment_temperature.isel({vert_dim: slice(1,None)}),
+        x=pressure.isel({vert_dim: slice(1,None)}),
+        a=parcel_temperature.isel({vert_dim: slice(1,None)}),
+        b=temperature.isel({vert_dim: slice(1,None)}),
         dim=vert_dim, log_x=True).reindex_like(intersections)
     
     # For points for which the atmosphere and parcel temperatures have
     # the same lowest-level value, ignore this point and find the real
     # LFC above it.
     intersections = intersections.where(
-        (profile.environment_temperature.isel({vert_dim: 0}) !=
-         profile.temperature.isel({vert_dim: 0})),
+        (temperature.isel({vert_dim: 0}) !=
+         parcel_temperature.isel({vert_dim: 0})),
         other=intersections_above)
 
     out = xarray.Dataset()
@@ -793,7 +923,7 @@ def lfc_el(profile, vert_dim='model_level_number'):
     # By default the first values are the lowest (highest pressure)
     # crossings for LFC and the highest (lowest pressure) crossings
     # for EL. The LFC also has to be above the LCL.
-    above_lcl = intersections.increasing_x < profile.lcl_pressure
+    above_lcl = intersections.increasing_x < lcl_pressure
         
     out['lfc_pressure'] = intersections.increasing_x.where(
         above_lcl).max(dim='offset_dim')
@@ -809,13 +939,13 @@ def lfc_el(profile, vert_dim='model_level_number'):
     # If at the top of the atmosphere the parcel profile is warmer
     # than the environment, no EL exists. Also if EL is lower than or
     # equal to LCL, no EL exists.
-    top_pressure = profile.pressure == profile.pressure.min(dim=vert_dim)
-    top_prof_temp = profile.temperature.where(top_pressure).max(dim=vert_dim)
-    top_env_temp = profile.environment_temperature.where(
+    top_pressure = pressure == pressure.min(dim=vert_dim)
+    top_prof_temp = parcel_temperature.where(top_pressure).max(dim=vert_dim)
+    top_env_temp = temperature.where(
         top_pressure).max(dim=vert_dim)
     
     top_colder = top_prof_temp <= top_env_temp
-    el_above_lcl = out.el_pressure < profile.lcl_pressure
+    el_above_lcl = out.el_pressure < lcl_pressure
     el_exists = np.logical_and(top_colder, el_above_lcl)
     out['el_pressure'] = out.el_pressure.where(el_exists, other=np.nan)
     out['el_temperature'] = out.el_temperature.where(el_exists, other=np.nan)
@@ -829,9 +959,9 @@ def lfc_el(profile, vert_dim='model_level_number'):
     # If no intersection was found, but a parcel temperature above the
     # LCL is greater than the environmental temperature, return the
     # LCL.
-    above_lcl = profile.pressure < profile.lcl_pressure
-    pos_parcel = (profile.temperature.where(above_lcl) >
-                  profile.environment_temperature.where(above_lcl))
+    above_lcl = pressure < lcl_pressure
+    pos_parcel = (parcel_temperature.where(above_lcl) >
+                  temperature.where(above_lcl))
     pos_parcel = pos_parcel.any(dim=vert_dim)
     no_lfc_pos_parcel = np.logical_and(pos_parcel, lfc_missing)
 
@@ -839,14 +969,14 @@ def lfc_el(profile, vert_dim='model_level_number'):
     # are below the LCL and EL is above the LCL.
     exists_but_na = np.logical_and(np.logical_not(lfc_missing),
                                    np.isnan(out.lfc_pressure))
-    el_above_lcl = out.el_pressure < profile.lcl_pressure
+    el_above_lcl = out.el_pressure < lcl_pressure
     lfc_below_el_above = np.logical_and(exists_but_na, el_above_lcl)
     
     # Do the replacements with LCL.
     replace_with_lcl = np.logical_or(no_lfc_pos_parcel, lfc_below_el_above)
-    out['lfc_pressure'] = profile.lcl_pressure.where(replace_with_lcl,
-                                                     other=out.lfc_pressure)
-    out['lfc_temperature'] = profile.lcl_temperature.where(
+    out['lfc_pressure'] = lcl_pressure.where(replace_with_lcl,
+                                             other=out.lfc_pressure)
+    out['lfc_temperature'] = lcl_temperature.where(
         replace_with_lcl,
         other=out.lfc_temperature)   
     
@@ -883,6 +1013,8 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
           areas if integrating along x and including these areas
           afterwards.
     """
+    
+    assert np.all(np.abs(x[dim].diff(dim=dim)) == 1), 'Index increments must all be 1.'
     
     # Estimate zero crossings.
     zeros = xarray.zeros_like(y)
@@ -953,7 +1085,7 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
     return areas, mask
    
 def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
-                  parcel_profile, vert_dim='model_level_number', **kwargs):
+                  parcel_temperature, vert_dim='model_level_number', **kwargs):
     """
     Calculate CAPE and CIN.
 
@@ -973,8 +1105,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
         - temperature: Temperature at each pressure level [K].
         - lfc_pressure: Pressure of level of free convection [hPa].
         - el_pressure: Pressure of equilibrium level [hPa].
-        - parcel_profile: The parcel profile as returned from
-          parcel_profile().
+        - parcel_temperature: The temperature of the lifted parcel.
         - vert_dim: The vertical dimension.
 
     Returns:
@@ -991,7 +1122,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
 
     # Difference between the parcel path and measured temperature
     # profiles.
-    temp_diffs = xarray.Dataset({'temp_diff': (parcel_profile.temperature -
+    temp_diffs = xarray.Dataset({'temp_diff': (parcel_temperature -
                                                temperature),
                                  'pressure': pressure,
                                  'log_pressure': np.log(pressure)})
@@ -999,7 +1130,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
     # Integration areas around zero differences. Note MetPy's
     # implementation in _find_append_zero_crossings() looks for
     # intersections from the 2nd index onward (start=1 in this code);
-    # but in this implemnetation the whole array needs to be checked
+    # but in this implementation the whole array needs to be checked
     # (start=0) for the unit tests to pass.
     areas_around_zeros, trapz_mask = trap_around_zeros(x=temp_diffs.pressure, 
                                                        y=temp_diffs.temp_diff,  
@@ -1040,18 +1171,22 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
 
     return xarray.merge([cape, cin])
 
-def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure,
+def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressure,
              parcel_dewpoint, vert_dim='model_level_number', 
-             return_profile=False, **kwargs):
+             return_profile=False, virtual_temperature_correction=True,
+             **kwargs):
     """
     Calculate CAPE and CIN; wraps finding of LFC and parcel profile
     and call to cape_cin_base. Uses the bottom (highest-pressure) LFC
-    and the top (lowest-pressure) EL.
+    and the top (lowest-pressure) EL. The virtual temperature correction is
+    optional; it defaults to False to match MetPy's implementation, but is
+    it is recommended as a more correct way to calculate CAPE/CIN.
 
     Arguments:
 
         - pressure: Pressure level(s) of interest [hPa].
         - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpont at each pressure level [K].
         - parcel_temperature: The temperature of the starting parcel [K].
         - parcel_pressure: The pressure of the starting parcel [K].
         - parcel_dewpoint: The dewpoint of the starting parcel [K].
@@ -1066,24 +1201,49 @@ def cape_cin(pressure, temperature, parcel_temperature, parcel_pressure,
           lifted profile if return_profile is True.
     """
     
-    # Calculate parcel profile.
+    # Calculate parcel profile. The LCL is always calculated using real temperature.
     profile = parcel_profile_with_lcl(pressure=pressure,
                                       temperature=temperature,
+                                      dewpoint=dewpoint,
                                       parcel_temperature=parcel_temperature,
                                       parcel_pressure=parcel_pressure,
                                       parcel_dewpoint=parcel_dewpoint,
                                       vert_dim=vert_dim)
     
-    # Calculate LFC and EL.
-    parcel_lfc_el = lfc_el(profile=profile, vert_dim=vert_dim)
-    
-    # Calculate CAPE and CIN.
-    cape_cin = cape_cin_base(pressure=profile.pressure,
-                             temperature=profile.environment_temperature, 
-                             lfc_pressure=parcel_lfc_el.lfc_pressure, 
-                             el_pressure=parcel_lfc_el.el_pressure, 
-                             parcel_profile=profile,
-                             vert_dim=vert_dim, **kwargs)
+    # Apply the virtual temperature correction?
+    # By default, MetPy does not use any virtual temperature correction.
+    if not virtual_temperature_correction:
+        # Calculate LFC and EL.
+        parcel_lfc_el = lfc_el(pressure=profile.pressure,
+                               parcel_temperature=profile.temperature, 
+                               temperature=profile.environment_temperature, 
+                               lcl_pressure=profile.lcl_pressure, 
+                               lcl_temperature=profile.lcl_temperature,
+                               vert_dim=vert_dim)
+
+        # Calculate CAPE and CIN.
+        cape_cin = cape_cin_base(pressure=profile.pressure,
+                                 temperature=profile.environment_temperature, 
+                                 lfc_pressure=parcel_lfc_el.lfc_pressure, 
+                                 el_pressure=parcel_lfc_el.el_pressure, 
+                                 parcel_temperature=profile.temperature,
+                                 vert_dim=vert_dim, **kwargs)
+    else:
+        # Calculate LFC and EL.
+        parcel_lfc_el = lfc_el(pressure=profile.pressure,
+                               parcel_temperature=profile.virtual_temperature, 
+                               temperature=profile.environment_virtual_temperature, 
+                               lcl_pressure=profile.lcl_pressure, 
+                               lcl_temperature=profile.lcl_virtual_temperature,
+                               vert_dim=vert_dim)
+
+        # Calculate CAPE and CIN.
+        cape_cin = cape_cin_base(pressure=profile.pressure,
+                                 temperature=profile.environment_virtual_temperature, 
+                                 lfc_pressure=parcel_lfc_el.lfc_pressure, 
+                                 el_pressure=parcel_lfc_el.el_pressure, 
+                                 parcel_temperature=profile.virtual_temperature,
+                                 vert_dim=vert_dim, **kwargs)   
     
     if return_profile:
         return cape_cin, xarray.merge([profile, parcel_lfc_el])
@@ -1114,6 +1274,7 @@ def surface_based_cape_cin(pressure, temperature, dewpoint,
     # Profile for surface-based parcel ascent.
     return cape_cin(pressure=pressure,
                     temperature=temperature,
+                    dewpoint=dewpoint,
                     parcel_temperature=temperature.isel({vert_dim: 0}),
                     parcel_pressure=pressure.isel({vert_dim: 0}),
                     parcel_dewpoint=dewpoint.isel({vert_dim: 0}),
@@ -1190,6 +1351,7 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
         
     return cape_cin(pressure=pressure,
                     temperature=temperature,
+                    dewpoint=dewpoint,
                     parcel_temperature=unstable_layer.temperature, 
                     parcel_pressure=unstable_layer.pressure,
                     parcel_dewpoint=unstable_layer.dewpoint,
@@ -1271,6 +1433,7 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint,
     
     return cape_cin(pressure=pressure,
                     temperature=temperature,
+                    dewpoint=dewpoint,
                     parcel_temperature=mp.temperature, 
                     parcel_pressure=mp.pressure,
                     parcel_dewpoint=mp.dewpoint,
@@ -1291,6 +1454,8 @@ def shift_out_nans(x, name, dim):
         - pt: The index along the dimension to shift 'to'.
 
     """
+    
+    assert np.all(np.abs(x[dim].diff(dim=dim)) == 1), 'Index increments must all be 1.'
     
     while np.any(np.isnan(x[name].isel({dim: 0}))):
         shifted = x.shift({dim: -1})
@@ -1344,6 +1509,10 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     It is assumed that x[coords] is sorted and does not contain
     duplicate values along the selected dimension.
     """
+    
+    coord_diffs = np.unique(np.sign(coords.diff(dim=dim)))
+    coord_diffs = coord_diffs[~np.isnan(coord_diffs)]
+    assert len(coord_diffs) == 1, 'Coords are not sorted.'
     
     coords_before = coords.where(coords >= at).min(dim=dim)
     coords_after = coords.where(coords <= at).max(dim=dim)
@@ -1538,7 +1707,9 @@ def freezing_level_height(temperature, height, vert_dim='model_level_number'):
         - Freezing level height [m].
     """
     
-    flh = linear_interp(x=height, coords=temperature, at=273.15, dim=vert_dim)
+    _, zeros = xarray.broadcast(temperature, xarray.DataArray(273.15))
+    intersects = find_intersections(x=height, a=temperature, b=zeros, dim=vert_dim)
+    flh = intersects.all_intersect_x.min(dim='offset_dim')
     flh.attrs['long_name'] = f'Freezing level height'
     flh.attrs['units'] = 'm'
     flh.name = 'freezing_level'
@@ -1565,7 +1736,8 @@ def isobar_temperature(pressure, temperature, isobar, vert_dim='model_level_numb
     temp.attrs['units'] = 'K'
     return temp
 
-def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_height=6000):
+def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_height=6000, 
+               vert_dim='model_level_number'):
     """
     Calculate wind shear.
     
@@ -1574,14 +1746,15 @@ def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_hei
         - wind_u, wind_v: U and V components of above-surface wind.
         - height: The height of every coordinate in wind_u and wind_v.
         - shear_height: The wind height to subtract from surface wind [m].
+        - vert_dim: Name of vertical dimension.
         
     Returns:
     
         - Wind shear = wind at shear_height - wind at surface.
     """
     
-    wind_high_u = linear_interp(x=wind_u, coords=height, at=shear_height)
-    wind_high_v = linear_interp(x=wind_v, coords=height, at=shear_height)
+    wind_high_u = linear_interp(x=wind_u, coords=height, at=shear_height, dim=vert_dim)
+    wind_high_v = linear_interp(x=wind_v, coords=height, at=shear_height, dim=vert_dim)
     
     shear_u = wind_high_u - surface_wind_u
     shear_u.name = 'shear_u'
@@ -1591,11 +1764,18 @@ def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_hei
     shear_v.name = 'shear_v'
     shear_v.attrs['long_name'] = f'Surface to {shear_height} m wind shear, V component.'
     
+    high_mag = np.sqrt(wind_high_u**2 + wind_high_v**2)
+    surface_mag = np.sqrt(surface_wind_u**2 + surface_wind_v**2)
+    positive_shear = high_mag > surface_mag
+    positive_shear.name = 'positive_shear'
+    positive_shear.attrs['long_name'] = f'True if {shear_height} wind > surface wind.'
+    
     shear_magnitude = np.sqrt(shear_u**2 + shear_v**2)
     shear_magnitude.name = 'shear_magnitude'
     shear_magnitude.attrs['long_name'] = f'Surface to {shear_height} m bulk wind shear.'
 
-    out = xarray.merge([shear_u, shear_v, shear_magnitude])
+    out = xarray.merge([shear_u, shear_v, shear_magnitude, positive_shear], 
+                       combine_attrs='drop_conflicts').drop(vert_dim)
     for v in ['shear_u', 'shear_v', 'shear_magnitude']:
         out[v].attrs['units'] = 'm s-1'
         
@@ -1647,3 +1827,20 @@ def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh
     ship.attrs['units'] = 'J kg-2 g K^2 km-1 m s-1'
     
     return ship
+
+def valid_data(dat, vert_dim):
+    """
+    Ensure that data is in the correct format to be passed to functions in this library. 
+    
+    Arguments:
+        dat: The data to check.
+        vert_dim: The name of the vertical dimension (e.g. level number).
+    
+    Returns: True if the data is correctly formated, False otherwise.
+    """
+    
+    assert np.all(np.abs(dat[vert_dim].diff(dim=vert_dim)) == 1), 'Index increments must all be 1.'
+    assert np.all(dat.pressure.diff(dim=vert_dim) < 0), 'Pressures must decrease with increasing level number.'
+    return True
+    
+    

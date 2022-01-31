@@ -16,19 +16,20 @@ import modules.parcel_functions as parcel
 # Load xarray-parcel's lookup tables.
 parcel.load_moist_adiabat_lookups()
 
-def time_function(func, dat):
+def time_function(func, dat, **kwargs):
     """
     Run a function and return its processing time.
     
     Arguments:
         func: The function to run.
         dat: An argument to pass to func.
+        kwargs: Extra arguments to function?
         
     Returns: The processing time [s].
     """
     
     start = time.perf_counter()
-    ret = func(dat)
+    ret = func(dat, **kwargs)
     end = time.perf_counter()
     return ret, end-start
 
@@ -86,7 +87,8 @@ def lcl_serial(parcel_pressure, parcel_temperature, parcel_dewpoint,
             press_lcl, temp_lcl = metpy.calc.lcl(pressure=pres, temperature=temp, dewpoint=dewpoint)
             
             lcl = xarray.Dataset({'lcl_pressure': press_lcl.m, 
-                                  'lcl_temperature': temp_lcl.m})
+                                  'lcl_temperature': temp_lcl.m,
+                                  'lcl_virtual_temperature': np.nan})
             
             lcl = lcl.expand_dims({x_dim: [x]})
             lcl = lcl.expand_dims({y_dim: [y]})
@@ -144,6 +146,8 @@ def moist_lapse_serial(pressure, parcel_temperature,
             out[-1] = out[-1].reset_coords(drop=True)
            
     out = xarray.merge(out)
+    out.temperature.attrs['long_name'] = 'Moist lapse rate temperature'
+    out.temperature.attrs['units'] = 'K'
     return out.temperature
     
 def moist_lapse_single_point(pressure, parcel_temperature, parcel_pressure=None, 
@@ -376,13 +380,15 @@ def conv_properties_metpy_serial(dat):
     out = xarray.merge(out)   
     return(out)
 
-def conv_properties(dat, vert_dim='model_level_number'):
+def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
     """
     Calculate convective properties for a set of points, using vectorised code.
     
     Arguments:
        dat: An xarray Dataset containing dewpoint, pressure, temperature, and 
             specific humidity.
+       vert_dim: Name of the vertical dimension in dat.
+       virt_temp: Use virtual temperature correction?
             
     Returns: Dataset containing all tested convective properties.
     """
@@ -415,7 +421,8 @@ def conv_properties(dat, vert_dim='model_level_number'):
     mixed_cape_cin, mixed_profile = parcel.mixed_layer_cape_cin(pressure=dat.pressure,
                                                                 temperature=dat.temperature, 
                                                                 dewpoint=dat.dewpoint,
-                                                                depth=100, return_profile=True)
+                                                                depth=100, return_profile=True,
+                                                                virtual_temperature_correction=virt_temp)
     mixed_cape_cin = mixed_cape_cin.rename({'cape': 'mixed_cape',
                                             'cin': 'mixed_cin'})
     
@@ -423,19 +430,25 @@ def conv_properties(dat, vert_dim='model_level_number'):
     max_cape_cin = parcel.most_unstable_cape_cin(pressure=dat.pressure,
                                                  temperature=dat.temperature, 
                                                  dewpoint=dat.dewpoint,
-                                                 depth=300)
+                                                 depth=300,
+                                                 virtual_temperature_correction=virt_temp)
     max_cape_cin = max_cape_cin.rename({'cape': 'max_cape',
                                         'cin': 'max_cin'})
     
     # Profile including LCL for surface-based parcel ascent.
     surface_profile = parcel.parcel_profile_with_lcl(pressure=dat.pressure,
                                                      temperature=dat.temperature,
+                                                     dewpoint=dat.dewpoint,
                                                      parcel_temperature=dat.temperature.isel({vert_dim: 0}),
                                                      parcel_pressure=dat.pressure.isel({vert_dim: 0}),
                                                      parcel_dewpoint=dat.dewpoint.isel({vert_dim: 0}))
     
     # LFC for surface-based parcel.
-    surface_lfc_el = parcel.lfc_el(profile=surface_profile)
+    surface_lfc_el = parcel.lfc_el(pressure=surface_profile.pressure,
+                                   parcel_temperature=surface_profile.temperature, 
+                                   temperature=surface_profile.environment_temperature, 
+                                   lcl_pressure=surface_profile.lcl_pressure, 
+                                   lcl_temperature=surface_profile.lcl_temperature)
     surface_lfc_el = surface_lfc_el.rename({'lfc_pressure': 'surface_lfc_pressure',
                                             'lfc_temperature': 'surface_lfc_temp',
                                             'el_pressure': 'surface_el_pressure',
@@ -444,7 +457,8 @@ def conv_properties(dat, vert_dim='model_level_number'):
     # Surface-based CAPE and CIN.
     surface_cape_cin = parcel.surface_based_cape_cin(pressure=dat.pressure,
                                                      temperature=dat.temperature, 
-                                                     dewpoint=dat.dewpoint)
+                                                     dewpoint=dat.dewpoint,
+                                                     virtual_temperature_correction=virt_temp)
     surface_cape_cin = surface_cape_cin.rename({'cape': 'surface_cape',
                                                 'cin': 'surface_cin'})
     
@@ -453,8 +467,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
     
     # Deep convective index for mixed layer profile.
     dci = parcel.deep_convective_index(pressure=dat.pressure, temperature=dat.temperature,
-                                       dewpoint=dat.dewpoint, 
-                                       lifted_index=lifted_index.lifted_index)
+                                       dewpoint=dat.dewpoint, lifted_index=lifted_index.lifted_index)
     
     # Rename clashing variables.
     surface_profile = surface_profile.rename({'pressure': 'surf_pres',
@@ -478,18 +491,19 @@ def conv_properties(dat, vert_dim='model_level_number'):
     
     return out
 
-def test_parcel_functions(dat):
+def test_parcel_functions(dat, virt_temp=False):
     """
     Test that parcel functions in this module give the same results that MetPy gives for each profile.
     
     Arguments:
        dat: An xarray Dataset containing pressure, temperature, and specific humidity.
+       virt_temp: Use the virtual temperature correction (MetPy does not).
        
     Returns: true if all tests passed, false if not.
     """
     
     print('Calculating xarray results...\t\t', end='')
-    xarray_results, time = time_function(func=conv_properties, dat=dat)
+    xarray_results, time = time_function(func=conv_properties, dat=dat, virt_temp=virt_temp)
     print(f'{str(time)} s.')
     
     print('Calculating metpy serial results...\t', end='')
