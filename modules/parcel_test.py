@@ -239,9 +239,9 @@ def surface_cape_vector(dat):
     dewpoint = dewpoint.metpy.dequantify()
     
     # CAPE and CIN.
-    out = parcel.surface_based_cape_cin(pressure=dat.pressure,
-                                        temperature=dat.temperature, 
-                                        dewpoint=dewpoint)
+    out, _ = parcel.surface_based_cape_cin(pressure=dat.pressure,
+                                           temperature=dat.temperature, 
+                                           dewpoint=dewpoint)
     
     return(out)
 
@@ -418,22 +418,20 @@ def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
     moist.name = 'moist_lapse_temp'
         
     # Mixed-parcel CAPE and CIN.
-    mixed_cape_cin, mixed_profile = parcel.mixed_layer_cape_cin(pressure=dat.pressure,
-                                                                temperature=dat.temperature, 
-                                                                dewpoint=dat.dewpoint,
-                                                                depth=100, return_profile=True,
-                                                                virtual_temperature_correction=virt_temp)
-    mixed_cape_cin = mixed_cape_cin.rename({'cape': 'mixed_cape',
-                                            'cin': 'mixed_cin'})
+    mixed_cape_cin, mixed_profile, _ = parcel.mixed_layer_cape_cin(pressure=dat.pressure,
+                                                                   temperature=dat.temperature, 
+                                                                   dewpoint=dat.dewpoint,
+                                                                   depth=100, 
+                                                                   virtual_temperature_correction=virt_temp,
+                                                                   prefix='mixed')
     
     # CAPE and CIN for most unstable parcel in lowest 300 hPa.
-    max_cape_cin = parcel.most_unstable_cape_cin(pressure=dat.pressure,
-                                                 temperature=dat.temperature, 
-                                                 dewpoint=dat.dewpoint,
-                                                 depth=300,
-                                                 virtual_temperature_correction=virt_temp)
-    max_cape_cin = max_cape_cin.rename({'cape': 'max_cape',
-                                        'cin': 'max_cin'})
+    max_cape_cin, _, _= parcel.most_unstable_cape_cin(pressure=dat.pressure,
+                                                      temperature=dat.temperature, 
+                                                      dewpoint=dat.dewpoint,
+                                                      depth=300,
+                                                      virtual_temperature_correction=virt_temp,
+                                                      prefix='max')
     
     # Profile including LCL for surface-based parcel ascent.
     surface_profile = parcel.parcel_profile_with_lcl(pressure=dat.pressure,
@@ -455,12 +453,11 @@ def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
                                             'el_temperature': 'surface_el_temp'})
     
     # Surface-based CAPE and CIN.
-    surface_cape_cin = parcel.surface_based_cape_cin(pressure=dat.pressure,
-                                                     temperature=dat.temperature, 
-                                                     dewpoint=dat.dewpoint,
-                                                     virtual_temperature_correction=virt_temp)
-    surface_cape_cin = surface_cape_cin.rename({'cape': 'surface_cape',
-                                                'cin': 'surface_cin'})
+    surface_cape_cin, surface_profile = parcel.surface_based_cape_cin(pressure=dat.pressure,
+                                                                      temperature=dat.temperature, 
+                                                                      dewpoint=dat.dewpoint,
+                                                                      virtual_temperature_correction=virt_temp,
+                                                                      prefix='surface')
     
     # Lifted index using mixed layer profile.
     lifted_index = parcel.lifted_index(profile=mixed_profile)

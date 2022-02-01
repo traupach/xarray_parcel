@@ -1173,7 +1173,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
 
 def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressure,
              parcel_dewpoint, vert_dim='model_level_number', 
-             return_profile=False, virtual_temperature_correction=True,
+             virtual_temperature_correction=True,
              **kwargs):
     """
     Calculate CAPE and CIN; wraps finding of LFC and parcel profile
@@ -1191,14 +1191,13 @@ def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressur
         - parcel_pressure: The pressure of the starting parcel [K].
         - parcel_dewpoint: The dewpoint of the starting parcel [K].
         - vert_dim: The vertical dimension.
-        - return_profile: Also return the lifted profile?
         - **kwargs: Optional extra arguments to cape_cin_base.
 
     Returns:
 
         - Dataset with convective available potential energy (cape)
           and convective inhibition (cin), both in J kg-1, plus the
-          lifted profile if return_profile is True.
+          lifted profile.
     """
     
     # Calculate parcel profile. The LCL is always calculated using real temperature.
@@ -1251,14 +1250,11 @@ def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressur
         cape_cin.attrs['correction'] = ('Virtual temperature correction used ' + 
                                         'in CAPE/CIN calculations.')
     
-    if return_profile:
-        return cape_cin, xarray.merge([profile, parcel_lfc_el])
-    else:
-        return cape_cin
+    return cape_cin, xarray.merge([profile, parcel_lfc_el])
     
 def surface_based_cape_cin(pressure, temperature, dewpoint,
                            vert_dim='model_level_number',
-                           return_extras=False, **kwargs):
+                           prefix=None, **kwargs):
     """
     Calculate surface-based CAPE and CIN.
 
@@ -1268,27 +1264,35 @@ def surface_based_cape_cin(pressure, temperature, dewpoint,
         - temperature: Temperature at each pressure level [K].
         - dewpoint: Dewpoint at each level [K].
         - vert_dim: The vertical dimension.
-        - return_extras: Also return the lifted profile?
+        - prefix: Variable prefix.
         - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
 
         - Dataset with convective available potential energy (cape) and 
-          convective inhibition (cin), both in J kg-1.
+          convective inhibition (cin), both in J kg-1, plus the lifted profile.
     """
     
     # Profile for surface-based parcel ascent.
-    return cape_cin(pressure=pressure,
-                    temperature=temperature,
-                    dewpoint=dewpoint,
-                    parcel_temperature=temperature.isel({vert_dim: 0}),
-                    parcel_pressure=pressure.isel({vert_dim: 0}),
-                    parcel_dewpoint=dewpoint.isel({vert_dim: 0}),
-                    vert_dim=vert_dim,
-                    return_profile=return_extras,
-                    **kwargs)
+    res, profile = cape_cin(pressure=pressure,
+                            temperature=temperature,
+                            dewpoint=dewpoint,
+                            parcel_temperature=temperature.isel({vert_dim: 0}),
+                            parcel_pressure=pressure.isel({vert_dim: 0}),
+                            parcel_dewpoint=dewpoint.isel({vert_dim: 0}),
+                            vert_dim=vert_dim,
+                            **kwargs)
+    
+    res.cape.attrs['description'] = 'CAPE for surface-based parcel.'
+    res.cin.attrs['description'] = 'CIN for surface-based parcel.'
+    if not prefix is None:
+        res = res.rename({'cape': prefix+'_cape',
+                          'cin': prefix+'_cin'})
+    
+    return res, profile
+        
 
-def from_most_unstable_parcel(pressure, temperature, dewpoint
+def from_most_unstable_parcel(pressure, temperature, dewpoint,
                               vert_dim='model_level_number', depth=300):
     """
     Select pressure and temperature data at and above the most unstable
@@ -1328,8 +1332,7 @@ def from_most_unstable_parcel(pressure, temperature, dewpoint
 
 def most_unstable_cape_cin(pressure, temperature, dewpoint,
                            vert_dim='model_level_number', depth=300,
-                           return_extras=False, prefix=None,
-                           **kwargs):
+                           prefix=None, **kwargs):
     """
     Calculate CAPE and CIN for the most unstable parcel within a given 
     depth above the surface..
@@ -1342,42 +1345,37 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
         - vert_dim: The vertical dimension.
         - depth: The depth above the surface (lowest-level pressure)
                  in which to look for the most unstable parcel.
-        - return_extras: Also return the lifted profile and most unstable parcel?
         - prefix: Prefix for variable names.
-        - return_parcel: Return the most-unstable parcel?
         - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
 
         - Dataset with convective available potential energy (cape) and 
-          convective inhibition (cin), both in J kg-1.
+          convective inhibition (cin), both in J kg-1, plus the 
+          lifted profile and the lifted parcel.
     """
     
     pressure, temperature, dewpoint, unstable_layer = from_most_unstable_parcel(
         pressure=pressure, temperature=temperature, dewpoint=dewpoint,
         vert_dim=vert_dim, depth=depth)
         
-    res = cape_cin(pressure=pressure,
-                   temperature=temperature,
-                   dewpoint=dewpoint,
-                   parcel_temperature=unstable_layer.temperature, 
-                   parcel_pressure=unstable_layer.pressure,
-                   parcel_dewpoint=unstable_layer.dewpoint,
-                   vert_dim=vert_dim,
-                   return_profile=return_extras,
-                   **kwargs)
-    
+    res, profile = cape_cin(pressure=pressure,
+                            temperature=temperature,
+                            dewpoint=dewpoint,
+                            parcel_temperature=unstable_layer.temperature, 
+                            parcel_pressure=unstable_layer.pressure,
+                            parcel_dewpoint=unstable_layer.dewpoint,   
+                            vert_dim=vert_dim,
+                            **kwargs)
+
     desc = f'most-unstable parcel in lowest {depth} hPa.'
     res.cape.attrs['description'] = f'CAPE for {desc}'
-    res.cin.mixed_cin.attrs['description'] = f'CIN for {desc}'
+    res.cin.attrs['description'] = f'CIN for {desc}'
     if not prefix is None:
-        res.rename({'cape': prefix+'_cape',
-                    'cin': prefix+'_cin'})
+        res = res.rename({'cape': prefix+'_cape',
+                          'cin': prefix+'_cin'})
     
-    if return_parcel:
-        return res, unstable_layer
-    else:
-        return res
+    return res, profile, unstable_layer
         
 def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number', 
               depth=100):
@@ -1422,7 +1420,7 @@ def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number',
     return pressure, temperature, dewpoint, mp
     
 def mixed_layer_cape_cin(pressure, temperature, dewpoint, vert_dim='model_level_number',
-                         depth=100, return_extras=False, prefix=None, **kwargs):
+                         depth=100, prefix=None, **kwargs):
     """
     Calculate CAPE and CIN for a fully-mixed lowest x hPa parcel.
 
@@ -1434,14 +1432,14 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint, vert_dim='model_level_
         - vert_dim: The vertical dimension.
         - depth: The depth above the surface (lowest-level pressure)
           to mix [hPa].
-        - return_extras: Also return the lifted profile and mixed parcel?
         - prefix: Variable name prefix.
         - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
 
         - Dataset with convective available potential energy (cape)
-          and convective inhibition (cin), both in J kg-1.
+          and convective inhibition (cin), both in J kg-1, plus the
+          lifted profile and mixed parcel.
     """
 
     pressure, temperature, dewpoint, mp = mix_layer(pressure=pressure,
@@ -1450,28 +1448,24 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint, vert_dim='model_level_
                                                     vert_dim=vert_dim,
                                                     depth=depth)
     
-    res = cape_cin(pressure=pressure,
-                   temperature=temperature,
-                   dewpoint=dewpoint,
-                   parcel_temperature=mp.temperature, 
-                   parcel_pressure=mp.pressure,
-                   parcel_dewpoint=mp.dewpoint,
-                   vert_dim=vert_dim,
-                   return_profile=return_extras,
-                   **kwargs)
+    res, profile = cape_cin(pressure=pressure,
+                            temperature=temperature,
+                            dewpoint=dewpoint,
+                            parcel_temperature=mp.temperature, 
+                            parcel_pressure=mp.pressure,
+                            parcel_dewpoint=mp.dewpoint,
+                            vert_dim=vert_dim,
+                            **kwargs)
 
     desc = f'fully-mixed lowest {depth} hPa parcel'
     res.cape.attrs['description'] = f'CAPE for {desc}.'
     res.cin.attrs['description'] = f'CIN for {desc}'
     
     if not prefix is None:
-        res.rename({'cape': prefix+'_cape',
-                    'cin': prefix+'_cin'})
+        res = res.rename({'cape': prefix+'_cape',
+                          'cin': prefix+'_cin'})
     
-    if return_extras:
-        return res, mp
-    else:
-        return res
+    return res, profile, mp
     
 def shift_out_nans(x, name, dim):
     """
@@ -1661,8 +1655,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
         pressure=dat.pressure,
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
-        vert_dim=vert_dim, 
-        return_extras=True,
+        vert_dim=vert_dim,
         depth=250, prefix='mu')
     
     print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
@@ -1671,8 +1664,6 @@ def conv_properties(dat, vert_dim='model_level_number'):
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
         vert_dim=vert_dim,
-        depth=100, 
-        return_extras=True,
         prefix='mixed_100')
     
     print('Calculating mixed-parcel CAPE and CIN (50 hPa)...')
@@ -1681,8 +1672,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
         vert_dim=vert_dim,
-        depth=50, 
-        return_extras=True,
+        depth=50,
         prefix='mixed_50')
     
     print('Calculating lifted indices...')
@@ -1754,52 +1744,6 @@ def conv_properties(dat, vert_dim='model_level_number'):
                         mu_dci, mixed_dci_100, mixed_dci_50, lapse, 
                         temp_500, flh, shear, positive_shear])
     return out
-    
-def parcel_conv_indices(pressure, temperature, parcel, name, 
-                        vert_dim='model_level_number'):
-    """
-    Calculate properties of a lifted parcel and rename variables.
-    
-    Arguments:
-        
-        - pressure: The pressure at each vertical level [hPa].
-        - temperature: The temperature at each vertical level [K].
-        - parcel: The parcel to lift.
-        - name: A name for the parcel.
-        - prefix: A prefix for variables in the returned object.
-        - vert_dim: Name of the vertical dimension.
-        
-    Returns: 
-    
-        - A DataSet with the lifted index, deep convective index,
-        
-    """
-    
-    print('Lifting ' + name + ' parcel...')
-    profile = parcel.parcel_profile_with_lcl(pressure=pressure,
-                                             temperature=temperature,
-                                             parcel_pressure=parcel.pressure,
-                                             parcel_temperature=parcel.temperature,
-                                             parcel_dewpoint=parcel.dewpoint)
-    
-   # parcel.pressure.attrs['long_name'] = f'Pressure of {name} parcel.'
-   # parcel.temperature.attrs['long_name'] = f'Temperature of {name} parcel.'
-   # parcel.dewpoint.attrs['long_name'] = f'Dewpoint of {name} parcel.'
-        
-   # parcel = parcel.rename({'pressure': prefix + '_pressure',
-   #                         'temperature': prefix + '_temperature',
-   #                         'dewpoint': prefix + '_dewpoint'})
-                            
-    # Lifted index.
-    li = lifted_index(profile=profile)
-    dci = deep_convective_index(pressure=pressure, temperature=temperature, 
-                                dewpoint=dewpoint, lifted_index=li.lifted_index)
-        
-    li.rename({'lifted_index': prefix+'_lifted_index'})
-    
-        dci.rename({'dci': prefix+'_dci'})
-    
-    
         
 def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500, 
                vert_dim='model_level_number'):
