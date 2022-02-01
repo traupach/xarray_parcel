@@ -1258,7 +1258,7 @@ def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressur
     
 def surface_based_cape_cin(pressure, temperature, dewpoint,
                            vert_dim='model_level_number',
-                           return_profile=False, **kwargs):
+                           return_extras=False, **kwargs):
     """
     Calculate surface-based CAPE and CIN.
 
@@ -1268,7 +1268,7 @@ def surface_based_cape_cin(pressure, temperature, dewpoint,
         - temperature: Temperature at each pressure level [K].
         - dewpoint: Dewpoint at each level [K].
         - vert_dim: The vertical dimension.
-        - return_profile: Also return the lifted profile?
+        - return_extras: Also return the lifted profile?
         - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
@@ -1285,10 +1285,10 @@ def surface_based_cape_cin(pressure, temperature, dewpoint,
                     parcel_pressure=pressure.isel({vert_dim: 0}),
                     parcel_dewpoint=dewpoint.isel({vert_dim: 0}),
                     vert_dim=vert_dim,
-                    return_profile=return_profile,
+                    return_profile=return_extras,
                     **kwargs)
 
-def from_most_unstable_parcel(pressure, temperature, dewpoint,
+def from_most_unstable_parcel(pressure, temperature, dewpoint
                               vert_dim='model_level_number', depth=300):
     """
     Select pressure and temperature data at and above the most unstable
@@ -1302,7 +1302,6 @@ def from_most_unstable_parcel(pressure, temperature, dewpoint,
         - vert_dim: The vertical dimension.
         - depth: The depth above the surface (lowest-level pressure)
                  in which to look for the most unstable parcel.
-        - return_profile: Also return the lifted profile?
         
     Returns:
 
@@ -1329,7 +1328,8 @@ def from_most_unstable_parcel(pressure, temperature, dewpoint,
 
 def most_unstable_cape_cin(pressure, temperature, dewpoint,
                            vert_dim='model_level_number', depth=300,
-                           return_profile=False, **kwargs):
+                           return_extras=False, prefix=None,
+                           **kwargs):
     """
     Calculate CAPE and CIN for the most unstable parcel within a given 
     depth above the surface..
@@ -1342,7 +1342,9 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
         - vert_dim: The vertical dimension.
         - depth: The depth above the surface (lowest-level pressure)
                  in which to look for the most unstable parcel.
-        - return_profile: Also return the lifted profile?
+        - return_extras: Also return the lifted profile and most unstable parcel?
+        - prefix: Prefix for variable names.
+        - return_parcel: Return the most-unstable parcel?
         - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
@@ -1355,15 +1357,27 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
         pressure=pressure, temperature=temperature, dewpoint=dewpoint,
         vert_dim=vert_dim, depth=depth)
         
-    return cape_cin(pressure=pressure,
-                    temperature=temperature,
-                    dewpoint=dewpoint,
-                    parcel_temperature=unstable_layer.temperature, 
-                    parcel_pressure=unstable_layer.pressure,
-                    parcel_dewpoint=unstable_layer.dewpoint,
-                    vert_dim=vert_dim,
-                    return_profile=return_profile,
-                    **kwargs)    
+    res = cape_cin(pressure=pressure,
+                   temperature=temperature,
+                   dewpoint=dewpoint,
+                   parcel_temperature=unstable_layer.temperature, 
+                   parcel_pressure=unstable_layer.pressure,
+                   parcel_dewpoint=unstable_layer.dewpoint,
+                   vert_dim=vert_dim,
+                   return_profile=return_extras,
+                   **kwargs)
+    
+    desc = f'most-unstable parcel in lowest {depth} hPa.'
+    res.cape.attrs['description'] = f'CAPE for {desc}'
+    res.cin.mixed_cin.attrs['description'] = f'CIN for {desc}'
+    if not prefix is None:
+        res.rename({'cape': prefix+'_cape',
+                    'cin': prefix+'_cin'})
+    
+    if return_parcel:
+        return res, unstable_layer
+    else:
+        return res
         
 def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number', 
               depth=100):
@@ -1407,10 +1421,8 @@ def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number',
     
     return pressure, temperature, dewpoint, mp
     
-def mixed_layer_cape_cin(pressure, temperature, dewpoint, 
-                         vert_dim='model_level_number',
-                         depth=100, return_profile=False,
-                         **kwargs):
+def mixed_layer_cape_cin(pressure, temperature, dewpoint, vert_dim='model_level_number',
+                         depth=100, return_extras=False, prefix=None, **kwargs):
     """
     Calculate CAPE and CIN for a fully-mixed lowest x hPa parcel.
 
@@ -1422,7 +1434,8 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint,
         - vert_dim: The vertical dimension.
         - depth: The depth above the surface (lowest-level pressure)
           to mix [hPa].
-        - return_profile: Also return the lifted profile?
+        - return_extras: Also return the lifted profile and mixed parcel?
+        - prefix: Variable name prefix.
         - **kwargs: Optional extra arguments to cape_cin.
         
     Returns:
@@ -1437,16 +1450,29 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint,
                                                     vert_dim=vert_dim,
                                                     depth=depth)
     
-    return cape_cin(pressure=pressure,
-                    temperature=temperature,
-                    dewpoint=dewpoint,
-                    parcel_temperature=mp.temperature, 
-                    parcel_pressure=mp.pressure,
-                    parcel_dewpoint=mp.dewpoint,
-                    vert_dim=vert_dim,
-                    return_profile=return_profile,
-                    **kwargs)
-        
+    res = cape_cin(pressure=pressure,
+                   temperature=temperature,
+                   dewpoint=dewpoint,
+                   parcel_temperature=mp.temperature, 
+                   parcel_pressure=mp.pressure,
+                   parcel_dewpoint=mp.dewpoint,
+                   vert_dim=vert_dim,
+                   return_profile=return_extras,
+                   **kwargs)
+
+    desc = f'fully-mixed lowest {depth} hPa parcel'
+    res.cape.attrs['description'] = f'CAPE for {desc}.'
+    res.cin.attrs['description'] = f'CIN for {desc}'
+    
+    if not prefix is None:
+        res.rename({'cape': prefix+'_cape',
+                    'cin': prefix+'_cin'})
+    
+    if return_extras:
+        return res, mp
+    else:
+        return res
+    
 def shift_out_nans(x, name, dim):
     """
     Shift data along a dim to remove all leading nans in that
@@ -1469,7 +1495,8 @@ def shift_out_nans(x, name, dim):
         
     return x
 
-def lifted_index(profile, vert_dim='model_level_number'):
+def lifted_index(profile, vert_dim='model_level_number', description=None,
+                 prefix=None):
     """
     Calculate the lifted index. 
     
@@ -1480,6 +1507,8 @@ def lifted_index(profile, vert_dim='model_level_number'):
 
         - profile: Profile as returned by parcel_profile_with_lcl().
         - vert_dim: The vertical dimension name.
+        - description: Description to add.
+        - prefix: Variable prefix to use.
 
     Returns:
 
@@ -1496,6 +1525,10 @@ def lifted_index(profile, vert_dim='model_level_number'):
                                           dat.temperature)})
     li.lifted_index.attrs['long_name'] = 'Lifted index'
     li.lifted_index.attrs['units'] = 'K'
+    if not description is None:
+        li.lifted_index.attrs['description'] = description
+    if not prefix is None:
+        li = li.rename({'lifted_index': prefix+'_lifted_index'})
     
     return li
     
@@ -1557,7 +1590,8 @@ def log_interp(x, coords, at, dim='model_level_number'):
     return linear_interp(x=x, coords=np.log(coords), at=np.log(at), dim=dim)
     
 def deep_convective_index(pressure, temperature, dewpoint, lifted_index, 
-                          vert_dim='model_level_number'):
+                          vert_dim='model_level_number', description=None, 
+                          prefix=None):
     """
     Calculate the deep convective index (DCI) as defined by Kunz 2009.
     
@@ -1568,6 +1602,8 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index,
         - dewpoint: Dewpoint temperature at each pressure.
         - lifted_index: The lifted index.
         - vert_dim: The vertical dimension name.
+        - description: Description to add to variable.
+        - prefix: Prefix to use for variable name.
     
     Returns:
 
@@ -1587,11 +1623,17 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index,
     dci = xarray.Dataset({'dci': dat.temperature + dat.dewpoint - lifted_index})
     dci.dci.attrs['long_name'] = 'Deep convective index'
     dci.dci.attrs['units'] = 'C'
+    
+    if not description is None:
+        dci.dci.attrs['description'] = description
+    if not prefix is None:
+        dci = dci.rename({'dci': prefix+'_dci'})
+    
     return dci
 
 def conv_properties(dat, vert_dim='model_level_number'):
     """
-    Calculate selected convective properties for a set of points.
+    Calculate selected convective properties for a set of points. 
     
     Arguments:
     
@@ -1605,8 +1647,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
           cin, most unstable parcel (250 hPa depth) cape and cin,
           lifted index and deep convective index for each point.
     """
-      
-    # Calculate dewpoints.
+
     print('Calculating dewpoint...')
     dat['dewpoint'] = metpy.calc.dewpoint_from_specific_humidity(
         pressure=dat.pressure,
@@ -1615,55 +1656,151 @@ def conv_properties(dat, vert_dim='model_level_number'):
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
 
-    # CAPE and CIN for most unstable parcel.
     print('Calculating most-unstable CAPE and CIN...')
-    max_cape_cin = most_unstable_cape_cin(
+    mu_cape_cin, mu_profile, mu_parcel = most_unstable_cape_cin(
+        pressure=dat.pressure,
+        temperature=dat.temperature, 
+        dewpoint=dat.dewpoint,
+        vert_dim=vert_dim, 
+        return_extras=True,
+        depth=250, prefix='mu')
+    
+    print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
+    mixed_cape_cin_100, mixed_profile_100, mixed_parcel_100 = mixed_layer_cape_cin(
         pressure=dat.pressure,
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
         vert_dim=vert_dim,
-        depth=250)
-    max_cape_cin = max_cape_cin.rename({'cape': 'max_cape',
-                                        'cin': 'max_cin'})
-    max_cape_cin.max_cape.attrs['description'] = ('CAPE for most-unstable ' +
-                                                  'parcel in lowest 250 hPa.')
-    max_cape_cin.max_cin.attrs['description'] = ('CIN for most-unstable ' +
-                                                 'parcel in lowest 250 hPa.')
+        depth=100, 
+        return_extras=True,
+        prefix='mixed_100')
     
-    # Mixed-parcel CAPE and CIN.
-    print('Calculating mixed-parcel CAPE and CIN...')
-    mixed_cape_cin, mixed_profile = mixed_layer_cape_cin(
+    print('Calculating mixed-parcel CAPE and CIN (50 hPa)...')
+    mixed_cape_cin_50, mixed_profile_50, mixed_parcel_100 = mixed_layer_cape_cin(
         pressure=dat.pressure,
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
         vert_dim=vert_dim,
-        depth=100, return_profile=True)
-    mixed_cape_cin = mixed_cape_cin.rename({'cape': 'mixed_cape',
-                                            'cin': 'mixed_cin'})
-    mixed_cape_cin.mixed_cape.attrs['description'] = ('CAPE for fully-mixed ' +
-                                                      'lowest 100 hPa parcel.')
-    mixed_cape_cin.mixed_cin.attrs['description'] = ('CIN for fully-mixed ' +
-                                                     'lowest 100 hPa parcel')
-        
-    # Lifted index using mixed layer profile.
-    print('Calculating lifted index...')
-    li = lifted_index(profile=mixed_profile, vert_dim=vert_dim)
+        depth=50, 
+        return_extras=True,
+        prefix='mixed_50')
     
-    # Deep convective index for mixed layer profile.
-    print('Calculating deep convective index...')
-    dci = deep_convective_index(pressure=dat.pressure, 
-                                temperature=dat.temperature,
-                                dewpoint=dat.dewpoint, 
-                                lifted_index=li.lifted_index,
-                                vert_dim=vert_dim)
-   
-    out = xarray.merge([mixed_cape_cin,
-                        max_cape_cin,
-                        li,
-                        dci])
+    print('Calculating lifted indices...')
+    mu_li = lifted_index(profile=mu_profile, vert_dim=vert_dim, prefix='mu',
+                         description=('Lifted index using most-unstable ' + 
+                                      'parcel in lowest 250 hPa.'))
+    mixed_li_100 = lifted_index(profile=mixed_profile_100, vert_dim=vert_dim, 
+                                prefix='mixed_100', 
+                                description=('Lifted index using fully-mixed ' + 
+                                             'lowest 100 hPa parcel.'))
+    mixed_li_50 = lifted_index(profile=mixed_profile_50, vert_dim=vert_dim,
+                               prefix='mixed_50', 
+                               description=('Lifted index using fully-mixed ' + 
+                                            'lowest 50 hPa parcel.'))
     
-    return out
+    print('Calculating deep convective indices...')
+    mu_dci = deep_convective_index(pressure=dat.pressure, 
+                                   temperature=dat.temperature,
+                                   dewpoint=dat.dewpoint, 
+                                   lifted_index=mu_li.mu_lifted_index,
+                                   vert_dim=vert_dim)
+    mixed_dci_100 = deep_convective_index(pressure=dat.pressure, 
+                                          temperature=dat.temperature,
+                                          dewpoint=dat.dewpoint, 
+                                          lifted_index=mixed_li_100.mixed_100_lifted_index,
+                                          vert_dim=vert_dim)
+    mixed_dci_50 = deep_convective_index(pressure=dat.pressure, 
+                                         temperature=dat.temperature,
+                                         dewpoint=dat.dewpoint, 
+                                         lifted_index=mixed_li_50.mixed_50_lifted_index,
+                                         vert_dim=vert_dim)
+    
+    print('Calculating mixing ratio of most unstable parcel...')
+    mu_mixing_ratio = metpy.calc.mixing_ratio_from_specific_humidity(
+        specific_humidity=metpy.calc.specific_humidity_from_dewpoint(
+            pressure=mu_parcel.pressure*units.hPa,
+            dewpoint=mu_parcel.dewpoint*units.K)).metpy.dequantify()
+    mu_mixing_ratio.attrs['long_name'] = 'Mixing ratio of most unstable parcel'
+    mu_mixing_ratio.name = 'mu_mixing_ratio'
+    
+    print('700-500 hPa lapse rate...')
+    lapse = lapse_rate(pressure=dat.pressure, 
+                       temperature=dat.temperature, 
+                       height=dat.geopotential_height)
+    lapse.name = 'lapse_rate_700_500'
 
+    print('Temperature at 500 hPa...')
+    temp_500 = isobar_temperature(pressure=dat.pressure, 
+                                  temperature=dat.temperature, 
+                                  isobar=500)
+    temp_500.name = 'temp_500'
+
+    print('Freezing level height...')
+    flh = freezing_level_height(temperature=dat.temperature, 
+                                height=dat.geopotential_height)
+
+    print('0-6 km vertical wind shear...')
+    shear = wind_shear(surface_wind_u=dat.wind_10m_u, 
+                       surface_wind_v=dat.wind_10m_v, 
+                       wind_u=dat.wind_u, 
+                       wind_v=dat.wind_v, 
+                       height=dat.geopotential_height, 
+                       shear_height=6000)
+
+    print('Merging results...')
+    out = xarray.merge([mu_cape_cin, mu_mixing_ratio, 
+                        mixed_cape_cin_100, mixed_cape_cin_50, 
+                        mu_li, mixed_li_100, mixed_li_50, 
+                        mu_dci, mixed_dci_100, mixed_dci_50, lapse, 
+                        temp_500, flh, shear, positive_shear])
+    return out
+    
+def parcel_conv_indices(pressure, temperature, parcel, name, 
+                        vert_dim='model_level_number'):
+    """
+    Calculate properties of a lifted parcel and rename variables.
+    
+    Arguments:
+        
+        - pressure: The pressure at each vertical level [hPa].
+        - temperature: The temperature at each vertical level [K].
+        - parcel: The parcel to lift.
+        - name: A name for the parcel.
+        - prefix: A prefix for variables in the returned object.
+        - vert_dim: Name of the vertical dimension.
+        
+    Returns: 
+    
+        - A DataSet with the lifted index, deep convective index,
+        
+    """
+    
+    print('Lifting ' + name + ' parcel...')
+    profile = parcel.parcel_profile_with_lcl(pressure=pressure,
+                                             temperature=temperature,
+                                             parcel_pressure=parcel.pressure,
+                                             parcel_temperature=parcel.temperature,
+                                             parcel_dewpoint=parcel.dewpoint)
+    
+   # parcel.pressure.attrs['long_name'] = f'Pressure of {name} parcel.'
+   # parcel.temperature.attrs['long_name'] = f'Temperature of {name} parcel.'
+   # parcel.dewpoint.attrs['long_name'] = f'Dewpoint of {name} parcel.'
+        
+   # parcel = parcel.rename({'pressure': prefix + '_pressure',
+   #                         'temperature': prefix + '_temperature',
+   #                         'dewpoint': prefix + '_dewpoint'})
+                            
+    # Lifted index.
+    li = lifted_index(profile=profile)
+    dci = deep_convective_index(pressure=pressure, temperature=temperature, 
+                                dewpoint=dewpoint, lifted_index=li.lifted_index)
+        
+    li.rename({'lifted_index': prefix+'_lifted_index'})
+    
+        dci.rename({'dci': prefix+'_dci'})
+    
+    
+        
 def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500, 
                vert_dim='model_level_number'):
     """
