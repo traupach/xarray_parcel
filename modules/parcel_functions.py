@@ -753,6 +753,7 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
         for k in level.keys():
             diffs = np.abs(existing_level[k] - level[k])
             diffs = diffs.where(np.logical_not(np.isnan(diffs)), drop=True)
+            assert not np.any(np.isnan(diffs)), 'NaNs appear in diffs.'
             assert np.all(diffs < 1e-3), ('Replacement level differs ' +
                                           'from existing level by more ' + 
                                           'than 1e-3 for ' + k)
