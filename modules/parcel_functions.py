@@ -748,8 +748,8 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
     if np.any(d[coords] == level[coords]):
         # The level to insert already exists in the data.
         existing_level = d.where(d[coords] == level[coords])[level.variables.keys()]
-        assert not np.any(no.isnan(existing_level)), ('Existing level does not ' +
-                                                      'cover all points')
+        assert not np.any(np.isnan(existing_level[coords])), ('Existing level does not ' +
+                                                              'cover all points')
         
         # Check that the existing level is close in value to the new level to insert.
         # Warning, this loop may be slow. It is called only in rare cases.
