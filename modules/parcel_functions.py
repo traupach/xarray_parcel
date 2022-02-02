@@ -748,7 +748,7 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
     
     assert np.all(np.abs(d[vert_dim].diff(dim=vert_dim)) == 1), ('Vert_dim index increments ' + 
                                                                  'must all be 1.')
-    
+
     # To conserve nans in the original dataset, replace them with
     # fill_value in the coordinate array.
     assert not np.any(d[coords] == fill_value), 'dataset d contains fill_value.'
