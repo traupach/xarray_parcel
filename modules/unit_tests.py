@@ -438,10 +438,10 @@ def test_sensitive_sounding(dp=2):
     assert_almost_equal(lfc.lfc_pressure, 947.422, dp)
     assert_almost_equal(lfc.lfc_temperature, 20.498+273.15, dp)
 
-    cape_cin = parcel.surface_based_cape_cin(pressure=levels, 
-                                             temperature=temperatures, 
-                                             dewpoint=dewpoints,
-                                             virtual_temperature_correction=False)
+    cape_cin, _ = parcel.surface_based_cape_cin(pressure=levels, 
+                                                temperature=temperatures, 
+                                                dewpoint=dewpoints,
+                                                virtual_temperature_correction=False)
     assert_almost_equal(cape_cin.cape, 0.1115, 3)
     assert_almost_equal(cape_cin.cin, -6.0866, 3)
 
@@ -837,10 +837,10 @@ def test_surface_based_cape_cin():
     temperatures = vert_array(np.array([22.2, 14.6, 12., 9.4, 7., -38.])+273.15, 'K')
     dewpoints = vert_array(np.array([19., -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
     
-    cape_cin = parcel.surface_based_cape_cin(pressure=levels, 
-                                             temperature=temperatures, 
-                                             dewpoint=dewpoints,
-                                             virtual_temperature_correction=False)
+    cape_cin, _ = parcel.surface_based_cape_cin(pressure=levels, 
+                                                temperature=temperatures, 
+                                                dewpoint=dewpoints,
+                                                virtual_temperature_correction=False)
 
     assert_almost_equal(cape_cin.cape, 75.0535446, 2)
     assert_almost_equal(cape_cin.cin, -136.685967, 2)
@@ -883,14 +883,14 @@ def test_profile_with_nans():
                                          el_pressure=lfc.el_pressure,
                                          parcel_temperature=profile.temperature,
                                          virtual_temperature_correction=False)
-    cape_cin_surf = parcel.surface_based_cape_cin(pressure=levels, 
+    cape_cin_surf, _ = parcel.surface_based_cape_cin(pressure=levels, 
                                                   temperature=temperatures, 
                                                   dewpoint=dewpoints,
                                                   virtual_temperature_correction=False)
-    cape_cin_unstable = parcel.most_unstable_cape_cin(pressure=levels, 
-                                                      temperature=temperatures, 
-                                                      dewpoint=dewpoints,
-                                                      virtual_temperature_correction=False)
+    cape_cin_unstable, _, _ = parcel.most_unstable_cape_cin(pressure=levels, 
+                                                            temperature=temperatures, 
+                                                            dewpoint=dewpoints,
+                                                            virtual_temperature_correction=False)
     
     assert(np.isnan(lfc.lfc_pressure))
     assert_almost_equal(cape_cin_base.cape, 0, 0)
@@ -909,10 +909,10 @@ def test_most_unstable_cape_cin_surface():
     temperatures.name = 'temperature'
     dewpoints.name = 'dewpoint'
     
-    cape_cin = parcel.most_unstable_cape_cin(pressure=levels, 
-                                             temperature=temperatures, 
-                                             dewpoint=dewpoints,
-                                             virtual_temperature_correction=False)
+    cape_cin, _, _ = parcel.most_unstable_cape_cin(pressure=levels, 
+                                                   temperature=temperatures, 
+                                                   dewpoint=dewpoints,
+                                                   virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 75.0535446, 2)
     assert_almost_equal(cape_cin.cin, -136.685967, 2)
@@ -944,10 +944,10 @@ def test_mixed_layer_cape_cin():
     """Test the calculation of mixed layer cape/cin."""
     levels, temperatures, dewpoints = multiple_intersections()
     
-    cape_cin = parcel.mixed_layer_cape_cin(pressure=levels, 
-                                           temperature=temperatures, 
-                                           dewpoint=dewpoints,
-                                           virtual_temperature_correction=False)
+    cape_cin, _, _ = parcel.mixed_layer_cape_cin(pressure=levels, 
+                                                 temperature=temperatures, 
+                                                 dewpoint=dewpoints,
+                                                 virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 987.7323, 2)
     assert_almost_equal(cape_cin.cin, -20.6727628, 2)
@@ -1111,10 +1111,10 @@ def test_cape_cin_value_error():
                                      -35.9, -26.7, -37.7, -43.1, -33.9, -40.9, -46.1, -34.9, -33.9,
                                      -33.7, -33.3, -42.5, -50.3, -49.7, -49.5, -58.3, -61.3])+273.15, 'K')
     
-    cape_cin = parcel.surface_based_cape_cin(pressure=levels,
-                                             temperature=temperatures, 
-                                             dewpoint=dewpoints,
-                                             virtual_temperature_correction=False)
+    cape_cin, _ = parcel.surface_based_cape_cin(pressure=levels,
+                                                temperature=temperatures, 
+                                                dewpoint=dewpoints,
+                                                virtual_temperature_correction=False)
     
     assert_almost_equal(cape_cin.cape, 2007.040698, 3)
     assert_almost_equal(cape_cin.cin, 0.0, 3)
