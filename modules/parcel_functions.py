@@ -752,7 +752,7 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
         # Warning, this loop may be slow. It is called only in rare cases.
         for k in level.keys():
             diff = np.nanmax(np.abs(existing_level[k] - level[k]))
-            print k + str(diff)
+            print(k + str(diff))
             assert diff < 1e-3, ('Replacement level differs ' +
                                  'from existing level by more ' + 
                                  'than 1e-3 for ' + k)
