@@ -739,36 +739,22 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
 
         - A new object with the new level added.
     
-    Note the vertical coordinate in the new profile is reindexed.
+    Note 1: the vertical coordinate in the new profile is reindexed.
+    Note 2: if the coordinates ('coord') used to index the levels already exist 
+            somewhere in 'd', the existing coordinate and its value is kept 
+            *below* the newly inserted layer, leading to repeated coordinate 
+            values.
     """
     
     assert np.all(np.abs(d[vert_dim].diff(dim=vert_dim)) == 1), ('Vert_dim index increments ' + 
                                                                  'must all be 1.')
-    
-    if np.any(d[coords] == level[coords]):
-        # The level to insert already exists in the data.
-        existing_level = d.where(d[coords] == level[coords])[level.variables.keys()]
-        assert not np.any(no.isnan(existing_level)), ('Existing level does not ' +
-                                                      'cover all points')
-        
-        # Check that the existing level is close in value to the new level to insert.
-        # Warning, this loop may be slow. It is called only in rare cases.
-        for k in level.keys():
-            diff = np.nanmax(np.abs(existing_level[k] - level[k]))
-            print(k + str(diff))
-            assert diff < 5e-3, ('Replacement level differs ' +
-                                 'from existing level by more ' + 
-                                 'than 5e-3 for ' + k)
-            
-        # If close in value, don't insert the new level.
-        return d
     
     # To conserve nans in the original dataset, replace them with
     # fill_value in the coordinate array.
     assert not np.any(d[coords] == fill_value), 'dataset d contains fill_value.'
     d = d.where(np.logical_not(np.isnan(d[coords])), other=fill_value)
     
-    below = d.where(d[coords] > level[coords])
+    below = d.where(d[coords] >= level[coords])
     above = d.where(d[coords] < level[coords])
        
     # Above the new coordinate, shift the vertical coordinate indices
