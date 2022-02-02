@@ -748,14 +748,14 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
     if np.any(d[coords] == level[coords]):
         # Level to insert already exists. Ensure no values are different.
         existing_level = d.where(d[coords] == level[coords], drop=True)[level.variables.keys()]
-        new_level = level.where(d[coords] == level[coords], drop=True)[level.variables.keys()]
         
-        # Warning; this loop may be slow, but it is called in rare cases.
+        # Warning, this loop may be slow. It is called only in rare cases.
         for k in level.keys():
-            assert np.all(np.abs(existing_level[k] - 
-                                 new_level[k]) < 1e-3), ('Replacement level differs ' + 
-                                                         'from existing level by more ' + 
-                                                         'than 1e-3 for ' + k)
+            diffs = np.abs(existing_level[k] - level[k])
+            diffs = diffs.where(np.logical_not(np.isnan(diffs)), drop=True)
+            assert np.all(diffs < 1e-3), ('Replacement level differs ' +
+                                          'from existing level by more ' + 
+                                          'than 1e-3 for ' + k)
         return d
     
     # To conserve nans in the original dataset, replace them with
