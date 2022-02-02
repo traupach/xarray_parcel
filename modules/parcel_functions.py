@@ -746,16 +746,21 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
                                                                  'must all be 1.')
     
     if np.any(d[coords] == level[coords]):
-        # Level to insert already exists. Ensure no values are different.
-        existing_level = d.where(d[coords] == level[coords], drop=True)[level.variables.keys()]
+        # The level to insert already exists in the data.
+        existing_level = d.where(d[coords] == level[coords])[level.variables.keys()]
+        assert not np.any(no.isnan(existing_level)), ('Existing level does not ' +
+                                                      'cover all points')
         
+        # Check that the existing level is close in value to the new level to insert.
         # Warning, this loop may be slow. It is called only in rare cases.
         for k in level.keys():
             diff = np.nanmax(np.abs(existing_level[k] - level[k]))
             print(k + str(diff))
-            assert diff < 1e-3, ('Replacement level differs ' +
+            assert diff < 5e-3, ('Replacement level differs ' +
                                  'from existing level by more ' + 
-                                 'than 1e-3 for ' + k)
+                                 'than 5e-3 for ' + k)
+            
+        # If close in value, don't insert the new level.
         return d
     
     # To conserve nans in the original dataset, replace them with
@@ -770,7 +775,7 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
     # up one.
     above = above.assign_coords({vert_dim: d[vert_dim] + 1})
 
-    # Use broadcasting to fills regions below the new coordinate.
+    # Use broadcasting to fill regions below the new coordinate.
     out, _ = xarray.broadcast(below, above)
 
     # Fill regions above the new coordinate.
