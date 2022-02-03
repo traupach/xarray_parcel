@@ -12,7 +12,7 @@ import numpy as np
 from metpy.units import units
 import metpy.constants as mpconsts
 
-# Global variables to contain moist adiabat lookup tables.
+# Class global variables to contain moist adiabat lookup tables.
 this = sys.modules[__name__]
 this.moist_adiabat_lookup = None
 this.moist_adiabats = None
@@ -627,7 +627,8 @@ def virtual_temperature(temperature, mixing_ratio, epsilon=0.608):
 
 def parcel_profile_with_lcl(pressure, temperature, dewpoint, parcel_pressure,
                             parcel_temperature, parcel_dewpoint,
-                            vert_dim='model_level_number'):
+                            vert_dim='model_level_number',
+                            lcl_interp='log'):
     """
     Calculate temperatures of a lifted parcel, including at the lcl.
     
@@ -640,6 +641,7 @@ def parcel_profile_with_lcl(pressure, temperature, dewpoint, parcel_pressure,
         - parcel_temperature: Temperature of the parcel [K].
         - parcel_dewpoint: Dewpoint of the parcel [K].
         - vert_dim: The name of the vertical dimension.
+        - lcl_interp: Interpolator for lcl environment. 
   
     Returns:
 
@@ -668,10 +670,11 @@ def parcel_profile_with_lcl(pressure, temperature, dewpoint, parcel_pressure,
     environment.temperature.attrs['units'] = 'K'
     
     return add_lcl_to_profile(profile=profile, vert_dim=vert_dim,
-                              environment=environment)
+                              environment=environment, 
+                              interpolator=lcl_interp)
 
 def add_lcl_to_profile(profile, vert_dim='model_level_number',
-                       environment=None):
+                       environment=None, interpolator='log'):
     """
     Add the LCL to a profile.
     
@@ -681,6 +684,7 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
         - vert_dim: The vertical dimension to add the LCL pressure/temp to.
         - environment: The environment (e.g. temperature/virtual temp) 
                        to interpolate at the lcl_pressure.
+        - interpolator: 'linear' or 'log' to use for vertical interpolation. 
         
     Returns:
 
@@ -688,6 +692,8 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
           added. Note the vertical coordinate in the new profile is
           reindexed.
     """
+    
+    assert interpolator in ['linear', 'log'], 'interpolator must be linear or log'
     
     # The new level to add. 
     level = xarray.Dataset({'pressure': profile.lcl_pressure,
@@ -703,18 +709,21 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
     out.lcl_virtual_temperature.attrs['long name'] = 'Virtual temperature at LCL'
 
     if not environment is None:
-        # Note: we use linear_interp here even though we are working in pressure
-        # coordinates, in order to match MetPy's implementation. In future it 
-        # may be more accurate to use log_interp.
-        interp_level = linear_interp(x=environment,
-                                     coords=environment.pressure,
-                                     at=level.pressure,
-                                     dim=vert_dim)
         
-        #interp_level = log_interp(x=environment,
-        #                          coords=environment.pressure,
-        #                          at=level.pressure,
-        #                          dim=vert_dim)
+        # Interpolate the environment to get the level to insert. 
+        # Note: MetPy uses a linear interpolator even on pressure levels.
+        # By default I use the log interpolator for greater accuracy.
+        if interpolator == 'linear':
+            interp_level = linear_interp(x=environment,
+                                         coords=environment.pressure,
+                                         at=level.pressure,
+                                         dim=vert_dim)
+        elif interpolator == 'log':
+            interp_level = log_interp(x=environment,
+                                      coords=environment.pressure,
+                                      at=level.pressure,
+                                      dim=vert_dim)
+            
         assert interp_level == level.pressure, 'Level pressure mismatch'
         
         new_environment = insert_level(d=environment, level=interp_level, 
@@ -753,7 +762,7 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
     
     assert np.all(np.abs(d[vert_dim].diff(dim=vert_dim)) == 1), ('Vert_dim index increments ' + 
                                                                  'must all be 1.')
-
+    
     # To conserve nans in the original dataset, replace them with
     # fill_value in the coordinate array.
     assert not np.any(d[coords] == fill_value), 'dataset d contains fill_value.'
@@ -1171,7 +1180,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
 
 def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressure,
              parcel_dewpoint, vert_dim='model_level_number', 
-             virtual_temperature_correction=True,
+             virtual_temperature_correction=True, lcl_interp='log',
              **kwargs):
     """
     Calculate CAPE and CIN; wraps finding of LFC and parcel profile
@@ -1189,6 +1198,7 @@ def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressur
         - parcel_pressure: The pressure of the starting parcel [K].
         - parcel_dewpoint: The dewpoint of the starting parcel [K].
         - vert_dim: The vertical dimension.
+        - lcl_interp: Interpolator for lcl environment (linear or log).
         - **kwargs: Optional extra arguments to cape_cin_base.
 
     Returns:
@@ -1205,7 +1215,8 @@ def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressur
                                       parcel_temperature=parcel_temperature,
                                       parcel_pressure=parcel_pressure,
                                       parcel_dewpoint=parcel_dewpoint,
-                                      vert_dim=vert_dim)
+                                      vert_dim=vert_dim,
+                                      lcl_interp=lcl_interp)
     
     # Apply the virtual temperature correction?
     # By default, MetPy does not use any virtual temperature correction.

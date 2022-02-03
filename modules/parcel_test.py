@@ -380,7 +380,7 @@ def conv_properties_metpy_serial(dat):
     out = xarray.merge(out)   
     return(out)
 
-def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
+def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, lcl_interp='log'):
     """
     Calculate convective properties for a set of points, using vectorised code.
     
@@ -423,7 +423,8 @@ def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
                                                                    dewpoint=dat.dewpoint,
                                                                    depth=100, 
                                                                    virtual_temperature_correction=virt_temp,
-                                                                   prefix='mixed')
+                                                                   prefix='mixed',
+                                                                   lcl_interp=lcl_interp)
     
     # CAPE and CIN for most unstable parcel in lowest 300 hPa.
     max_cape_cin, _, _= parcel.most_unstable_cape_cin(pressure=dat.pressure,
@@ -431,7 +432,8 @@ def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
                                                       dewpoint=dat.dewpoint,
                                                       depth=300,
                                                       virtual_temperature_correction=virt_temp,
-                                                      prefix='max')
+                                                      prefix='max',
+                                                      lcl_interp=lcl_interp)
     
     # Profile including LCL for surface-based parcel ascent.
     surface_profile = parcel.parcel_profile_with_lcl(pressure=dat.pressure,
@@ -439,7 +441,8 @@ def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
                                                      dewpoint=dat.dewpoint,
                                                      parcel_temperature=dat.temperature.isel({vert_dim: 0}),
                                                      parcel_pressure=dat.pressure.isel({vert_dim: 0}),
-                                                     parcel_dewpoint=dat.dewpoint.isel({vert_dim: 0}))
+                                                     parcel_dewpoint=dat.dewpoint.isel({vert_dim: 0}),
+                                                     lcl_interp=lcl_interp)
     
     # LFC for surface-based parcel.
     surface_lfc_el = parcel.lfc_el(pressure=surface_profile.pressure,
@@ -457,7 +460,8 @@ def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
                                                                       temperature=dat.temperature, 
                                                                       dewpoint=dat.dewpoint,
                                                                       virtual_temperature_correction=virt_temp,
-                                                                      prefix='surface')
+                                                                      prefix='surface',
+                                                                      lcl_interp=lcl_interp)
     
     # Lifted index using mixed layer profile.
     lifted_index = parcel.lifted_index(profile=mixed_profile)
@@ -488,7 +492,7 @@ def conv_properties(dat, vert_dim='model_level_number', virt_temp=False):
     
     return out
 
-def test_parcel_functions(dat, virt_temp=False):
+def test_parcel_functions(dat, virt_temp=False, lcl_interp='log'):
     """
     Test that parcel functions in this module give the same results that MetPy gives for each profile.
     
@@ -500,18 +504,26 @@ def test_parcel_functions(dat, virt_temp=False):
     """
     
     print('Calculating xarray results...\t\t', end='')
-    xarray_results, time = time_function(func=conv_properties, dat=dat, virt_temp=virt_temp)
+    xarray_results, time = time_function(func=conv_properties_xarray, dat=dat, virt_temp=virt_temp,
+                                         lcl_interp=lcl_interp)
     print(f'{str(time)} s.')
     
     print('Calculating metpy serial results...\t', end='')
     metpy_results, time = time_function(func=conv_properties_metpy_serial, dat=dat)
     print(f'{str(time)} s.')
   
-    print(f'{"Differences":65} {"Max abs. diff":20} {"Max rel. diff":20}')
-    for variable in metpy_results.keys():
-        compare(xarray_results[variable], metpy_results[variable], name=variable)
+    compare_results(set1=xarray_results, set2=metpy_results)
           
     return xarray_results, metpy_results
+
+def compare_results(set1, set2):
+    """
+    Compare variables between set1 and set2.
+    """
+    
+    print(f'{"Differences":65} {"Max abs. diff":20} {"Max rel. diff":20}')
+    for variable in set2.keys():
+        compare(set1[variable], set2[variable], name=variable)
 
 def benchmark_cape(dat, points=[2,4,8,16,32,64]):
     """
