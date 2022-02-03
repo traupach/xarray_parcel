@@ -66,6 +66,7 @@ def run_all_tests():
     test_cape_cin_value_error()
     test_lcl_grid_surface_lcls()
     test_lifted_index()
+    test_profile_with_lcl_in_levels()
     print('All tests passed.')
     
 def run_moist_lapse_tests_looser():
@@ -845,6 +846,24 @@ def test_surface_based_cape_cin():
     assert_almost_equal(cape_cin.cape, 75.0535446, 2)
     assert_almost_equal(cape_cin.cin, -136.685967, 2)
 
+def test_profile_with_lcl_in_levels():
+    """Test to ensure functions work when there are nans in pressure levels. """
+    levels = vert_array([959., 914.8213254198571, 779.2, 751.3, 724.3, 700., 269.], 'hPa')
+    temperatures = vert_array(np.array([22.2, 293.4826032991708-273.15, 14.6, 12., 9.4, 7., -38.])+273.15, 'K')
+    dewpoints = vert_array(np.array([19., 284.72955521512614-273.15, -11.2, -10.8, -10.4, -10., -53.2])+273.15, 'K')
+    
+    levels.name = 'pressure'
+    temperatures.name = 'temperature'
+    dewpoints.name = 'dewpoint'
+    
+    cape_cin, prof, _ = parcel.most_unstable_cape_cin(pressure=levels, 
+                                                      temperature=temperatures, 
+                                                      dewpoint=dewpoints,
+                                                      virtual_temperature_correction=False)
+    
+    assert_almost_equal(cape_cin.cape, 75.0535446, 2)
+    assert_almost_equal(cape_cin.cin, -136.685967, 2)
+    
 def test_profile_with_nans():
     """Test a profile with nans to make sure it calculates functions appropriately (#1187)."""
     levels = vert_array([1001, 1000, 997, 977.9, 977, 957, 937.8, 925, 906, 899.3, 887, 862.5,
@@ -1168,3 +1187,29 @@ def test_lifted_index():
     
     li = parcel.lifted_index(profile=profile)
     assert_almost_equal(li.lifted_index, -7.9176350, 2)
+    
+def test_insert_level():
+    """Test insertion of a level containing an existing pressure."""
+
+    d = xarray.Dataset(data_vars={'pressure': (['x', 'model_level_number'], 
+                                               [[1000, 900, 800, 700], 
+                                                [1000, 900, 800, 700]]),
+                                 'temperature': (['x', 'model_level_number'], 
+                                               [[1, 1, 1, 1], 
+                                                [1, 1, 1, 1]])},
+                       coords={'x': [1,2],
+                               'model_level_number': [1,2,3,4]})
+
+    level = xarray.Dataset(data_vars={'pressure': ('x', [1000, 600]),
+                                      'temperature': ('x', [1.5, 2])},
+                           coords={'x': [1,2]})
+
+    res = parcel.insert_level(d=d, level=level, coords='pressure')
+    pres_truth = np.array([[1000, 1000,  900,  800,  700],
+                           [1000,  900,  800,  700,  600]])
+    temp_truth = [[1,  1.5, 1,  1,  1],
+                  [1,  1,  1,  1,  2]]
+
+    np.testing.assert_array_equal(res.pressure, pres_truth)
+    np.testing.assert_array_equal(res.temperature, temp_truth)
+    

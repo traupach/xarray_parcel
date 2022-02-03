@@ -710,6 +710,11 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
                                      coords=environment.pressure,
                                      at=level.pressure,
                                      dim=vert_dim)
+        
+        #interp_level = log_interp(x=environment,
+        #                          coords=environment.pressure,
+        #                          at=level.pressure,
+        #                          dim=vert_dim)
         assert interp_level == level.pressure, 'Level pressure mismatch'
         
         new_environment = insert_level(d=environment, level=interp_level, 
@@ -1538,7 +1543,7 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     
     coord_diffs = np.unique(np.sign(coords.diff(dim=dim)))
     coord_diffs = coord_diffs[~np.isnan(coord_diffs)]
-    assert len(coord_diffs) == 1, 'Coords are not sorted.'
+    assert len(coord_diffs) == 1, 'Coords are not sorted or contain repeats.'
     
     coords_before = coords.where(coords >= at).min(dim=dim)
     coords_after = coords.where(coords <= at).max(dim=dim)
