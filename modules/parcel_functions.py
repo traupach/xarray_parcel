@@ -1549,6 +1549,8 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
         - keep_attrs: Keep attributes?
     
     It is assumed that x[coords] is sorted.
+    
+    If there is more than one value with 
     """
     
     coord_diffs = np.unique(np.sign(coords.diff(dim=dim)))
@@ -1556,19 +1558,19 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     coord_diffs = coord_diffs[coord_diffs != 0]
     assert len(coord_diffs) == 1, 'Coords are not sorted.'
     
-    if coord_diffs == -1:
-        coords_before = coords.where(coords >= at).max(dim=dim)
-        coords_after = coords.where(coords <= at).min(dim=dim)
-    elif coord_diffs == 1:
-        coords_before = coords.where(coords <= at).max(dim=dim)
-        coords_after = coords.where(coords >= at).min(dim=dim)
-    
+    coords_before = coords.where(coords >= at).min(dim=dim)
+    coords_after = coords.where(coords <= at).max(dim=dim)
     assert dim not in coords_before.coords, f'Duplicates in dimension {dim}.'
     assert dim not in coords_after.coords, f'Duplicates in dimension {dim}.'
-
-    x_before = x.where(coords == coords_before).max(dim=dim)
+    
+    x_before = x.where(coords == coords_before).min(dim=dim)
+    x_before_max = x.where(coords == coords_before).max(dim=dim)
     x_after = x.where(coords == coords_after).min(dim=dim)
-
+    x_after_max = x.where(coords == coords_after).max(dim=dim)
+    
+    assert np.abs(x_before_max - x_before).max() < 1e-5, 'Duplicate coordinates with differing values.'
+    assert np.abs(x_after_max - x_after).max() < 1e-5, 'Duplicate coordinates with differing values.'
+    
     # The interpolated values.
     res = x_before + (x_after - x_before) * ((at - coords_before) /
                                              (coords_after - coords_before))
