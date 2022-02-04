@@ -1758,7 +1758,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
                         mixed_cape_cin_100, mixed_cape_cin_50, 
                         mu_li, mixed_li_100, mixed_li_50, 
                         mu_dci, mixed_dci_100, mixed_dci_50, lapse, 
-                        temp_500, flh, shear, positive_shear])
+                        temp_500, flh, shear])
     return out
         
 def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500, 
