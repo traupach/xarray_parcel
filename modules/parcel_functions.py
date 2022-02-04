@@ -1709,17 +1709,20 @@ def conv_properties(dat, vert_dim='model_level_number'):
                                    temperature=dat.temperature,
                                    dewpoint=dat.dewpoint, 
                                    lifted_index=mu_li.mu_lifted_index,
-                                   vert_dim=vert_dim)
+                                   vert_dim=vert_dim,
+                                   prefix='mu')
     mixed_dci_100 = deep_convective_index(pressure=dat.pressure, 
                                           temperature=dat.temperature,
                                           dewpoint=dat.dewpoint, 
                                           lifted_index=mixed_li_100.mixed_100_lifted_index,
-                                          vert_dim=vert_dim)
+                                          vert_dim=vert_dim,
+                                          prefix='mixed_100')
     mixed_dci_50 = deep_convective_index(pressure=dat.pressure, 
                                          temperature=dat.temperature,
                                          dewpoint=dat.dewpoint, 
                                          lifted_index=mixed_li_50.mixed_50_lifted_index,
-                                         vert_dim=vert_dim)
+                                         vert_dim=vert_dim,
+                                         prefix='mixed_50')
     
     print('Calculating mixing ratio of most unstable parcel...')
     mu_mixing_ratio = metpy.calc.mixing_ratio_from_specific_humidity(
