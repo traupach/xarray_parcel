@@ -1548,21 +1548,26 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
         - dim: The dimension along which to interpolate.
         - keep_attrs: Keep attributes?
     
-    It is assumed that x[coords] is sorted and does not contain
-    duplicate values along the selected dimension.
+    It is assumed that x[coords] is sorted.
     """
     
     coord_diffs = np.unique(np.sign(coords.diff(dim=dim)))
     coord_diffs = coord_diffs[~np.isnan(coord_diffs)]
-    assert len(coord_diffs) == 1, 'Coords are not sorted or contain repeats.'
+    coord_diffs = coord_diffs[coord_diffs != 0]
+    assert len(coord_diffs) == 1, 'Coords are not sorted.'
     
-    coords_before = coords.where(coords >= at).min(dim=dim)
-    coords_after = coords.where(coords <= at).max(dim=dim)
-    assert dim not in coords_before.coords, 'Duplicates detected in coords.'
-    assert dim not in coords_after.coords, 'Duplicates detected in coords.'
+    if coord_diffs == -1:
+        coords_before = coords.where(coords >= at).max(dim=dim)
+        coords_after = coords.where(coords <= at).min(dim=dim)
+    elif coord_diffs == 1:
+        coords_before = coords.where(coords <= at).max(dim=dim)
+        coords_after = coords.where(coords >= at).min(dim=dim)
+    
+    assert dim not in coords_before.coords, f'Duplicates in dimension {dim}.'
+    assert dim not in coords_after.coords, f'Duplicates in dimension {dim}.'
 
     x_before = x.where(coords == coords_before).max(dim=dim)
-    x_after = x.where(coords == coords_after).max(dim=dim)
+    x_after = x.where(coords == coords_after).min(dim=dim)
 
     # The interpolated values.
     res = x_before + (x_after - x_before) * ((at - coords_before) /
@@ -1668,7 +1673,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
         depth=250, prefix='mu')
     
     print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
-    mixed_cape_cin_100, mixed_profile_100, mixed_parcel_100 = mixed_layer_cape_cin(
+    mixed_cape_cin_100, mixed_profile_100, _ = mixed_layer_cape_cin(
         pressure=dat.pressure,
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
@@ -1676,7 +1681,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
         prefix='mixed_100')
     
     print('Calculating mixed-parcel CAPE and CIN (50 hPa)...')
-    mixed_cape_cin_50, mixed_profile_50, mixed_parcel_100 = mixed_layer_cape_cin(
+    mixed_cape_cin_50, mixed_profile_50, _ = mixed_layer_cape_cin(
         pressure=dat.pressure,
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
