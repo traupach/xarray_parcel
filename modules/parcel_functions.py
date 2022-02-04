@@ -1878,7 +1878,7 @@ def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_hei
     shear_magnitude.attrs['long_name'] = f'Surface to {shear_height} m bulk wind shear.'
 
     out = xarray.merge([shear_u, shear_v, shear_magnitude, positive_shear], 
-                       combine_attrs='drop_conflicts').drop(vert_dim)
+                       combine_attrs='drop_conflicts')
     for v in ['shear_u', 'shear_v', 'shear_magnitude']:
         out[v].attrs['units'] = 'm s-1'
         
