@@ -1549,8 +1549,6 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
         - keep_attrs: Keep attributes?
     
     It is assumed that x[coords] is sorted.
-    
-    If there is more than one value with 
     """
     
     coord_diffs = np.unique(np.sign(coords.diff(dim=dim)))
@@ -1583,7 +1581,7 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     
     return(res)
 
-def log_interp(x, coords, at, dim='model_level_number'):
+def log_interp(x, coords, at, dim='model_level_number', log_dp=5):
     """
     Run linear_interp on logged coordinate values.
     
@@ -1592,12 +1590,15 @@ def log_interp(x, coords, at, dim='model_level_number'):
         - coords: Coordinate value for each point in x.
         - at: Points at which to interpolate.
         - dim: The dimension along which to interpolate.
+        - log_dp: Number of decimal places to round to in log (avoids
+                  loss of ordering caused by numerical differences). 
     
     It is assumed that x[coords] is sorted and does not contain duplicate 
     values along the selected dimension.
     """
     
-    return linear_interp(x=x, coords=np.log(coords), at=np.log(at), dim=dim)
+    return linear_interp(x=x, coords=np.around(np.log(coords), log_dp),
+                         at=np.log(at), dim=dim)
     
 def deep_convective_index(pressure, temperature, dewpoint, lifted_index, 
                           vert_dim='model_level_number', description=None, 
@@ -1653,9 +1654,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
             
     Returns:
     
-        - Dataset containing mixed parcel (100 hPa depth) cape and
-          cin, most unstable parcel (250 hPa depth) cape and cin,
-          lifted index and deep convective index for each point.
+        - Dataset containing convection properties for each point.
     """
 
     print('Calculating dewpoint...')
