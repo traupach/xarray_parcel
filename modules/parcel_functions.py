@@ -1697,26 +1697,33 @@ def conv_properties(dat, vert_dim='model_level_number'):
                                    dewpoint=dat.dewpoint, 
                                    lifted_index=mu_li.mu_lifted_index,
                                    vert_dim=vert_dim,
-                                   prefix='mu')
+                                   prefix='mu',
+                                   description=('Deep convective index using most-unstable ' + 
+                                                'parcel in lowest 250 hPa.'))
     mixed_dci_100 = deep_convective_index(pressure=dat.pressure, 
                                           temperature=dat.temperature,
                                           dewpoint=dat.dewpoint, 
                                           lifted_index=mixed_li_100.mixed_100_lifted_index,
                                           vert_dim=vert_dim,
-                                          prefix='mixed_100')
+                                          prefix='mixed_100',
+                                          description=('Deep convective index using fully-mixed ' + 
+                                                       'lowest 100 hPa parcel.'))
     mixed_dci_50 = deep_convective_index(pressure=dat.pressure, 
                                          temperature=dat.temperature,
                                          dewpoint=dat.dewpoint, 
                                          lifted_index=mixed_li_50.mixed_50_lifted_index,
                                          vert_dim=vert_dim,
-                                         prefix='mixed_50')
+                                         prefix='mixed_50',
+                                         description=('Deep convective index using fully-mixed ' + 
+                                                      'lowest 50 hPa parcel.'))
     
     print('Calculating mixing ratio of most unstable parcel...')
     mu_mixing_ratio = metpy.calc.mixing_ratio_from_specific_humidity(
         specific_humidity=metpy.calc.specific_humidity_from_dewpoint(
             pressure=mu_parcel.pressure*units.hPa,
             dewpoint=mu_parcel.dewpoint*units.K)).metpy.dequantify()
-    mu_mixing_ratio.attrs['long_name'] = 'Mixing ratio of most unstable parcel'
+    mu_mixing_ratio.attrs['long_name'] = 'Mixing ratio'
+    mu_mixing_ratio.attrs['description'] = 'Mixing ratio of most unstable parcel'
     mu_mixing_ratio.name = 'mu_mixing_ratio'
     
     print('700-500 hPa lapse rate...')
@@ -1749,6 +1756,10 @@ def conv_properties(dat, vert_dim='model_level_number'):
                         mu_li, mixed_li_100, mixed_li_50, 
                         mu_dci, mixed_dci_100, mixed_dci_50, lapse, 
                         temp_500, flh, shear])
+    
+    del out.attrs['units']
+    del out.attrs['long_name']
+    
     return out
         
 def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500, 
@@ -1780,7 +1791,8 @@ def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500
                            at=to_pressure, dim=vert_dim)/1000
         
     lapse = (to_temperature - from_temperature) / (to_height - from_height)
-    lapse.attrs['long_name'] = f'{from_pressure}-{to_pressure} hPa lapse rate'
+    lapse.attrs['long_name'] = 'Lapse rate'
+    lapse.attrs['description'] = f'{from_pressure}-{to_pressure} hPa lapse rate'
     lapse.attrs['units'] = 'K/km'
     
     return lapse
@@ -1825,7 +1837,10 @@ def isobar_temperature(pressure, temperature, isobar, vert_dim='model_level_numb
     """
     
     temp = log_interp(x=temperature, coords=pressure, at=isobar, dim=vert_dim)
-    temp.attrs['long_name'] = f'Temperature at {isobar} hPa.'
+    for k in temp.attrs.keys():
+        del temp.attrs[k]
+    temp.attrs['description'] = f'Temperature at {isobar} hPa.'
+    temp.attrs['long_name'] = 'Isobar temperature'
     temp.attrs['units'] = 'K'
     return temp
 
