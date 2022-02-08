@@ -1837,8 +1837,7 @@ def isobar_temperature(pressure, temperature, isobar, vert_dim='model_level_numb
     """
     
     temp = log_interp(x=temperature, coords=pressure, at=isobar, dim=vert_dim)
-    for k in temp.attrs.keys():
-        del temp.attrs[k]
+    temp.attrs = {}
     temp.attrs['description'] = f'Temperature at {isobar} hPa.'
     temp.attrs['long_name'] = 'Isobar temperature'
     temp.attrs['units'] = 'K'
