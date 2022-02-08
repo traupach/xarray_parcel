@@ -1547,19 +1547,11 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
         - at: Points at which to interpolate.
         - dim: The dimension along which to interpolate.
         - keep_attrs: Keep attributes?
-    
-    It is assumed that x[coords] is sorted.
     """
     
-    coord_diffs = np.unique(np.sign(coords.diff(dim=dim)))
-    coord_diffs = coord_diffs[~np.isnan(coord_diffs)]
-    coord_diffs = coord_diffs[coord_diffs != 0]
-    assert len(coord_diffs) == 1, 'Coords are not sorted.'
-    
+    # Coordinate values before and after (below and above?) the interp coord.
     coords_before = coords.where(coords >= at).min(dim=dim)
     coords_after = coords.where(coords <= at).max(dim=dim)
-    assert dim not in coords_before.coords, f'Duplicates in dimension {dim}.'
-    assert dim not in coords_after.coords, f'Duplicates in dimension {dim}.'
     
     x_before = x.where(coords == coords_before).min(dim=dim)
     x_before_max = x.where(coords == coords_before).max(dim=dim)
@@ -1581,7 +1573,7 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     
     return(res)
 
-def log_interp(x, coords, at, dim='model_level_number', log_dp=5):
+def log_interp(x, coords, at, dim='model_level_number'):
     """
     Run linear_interp on logged coordinate values.
     
@@ -1590,15 +1582,11 @@ def log_interp(x, coords, at, dim='model_level_number', log_dp=5):
         - coords: Coordinate value for each point in x.
         - at: Points at which to interpolate.
         - dim: The dimension along which to interpolate.
-        - log_dp: Number of decimal places to round to in log (avoids
-                  loss of ordering caused by numerical differences). 
     
-    It is assumed that x[coords] is sorted and does not contain duplicate 
-    values along the selected dimension.
+    It is assumed that x[coords] is sorted.
     """
     
-    return linear_interp(x=x, coords=np.around(np.log(coords), log_dp),
-                         at=np.log(at), dim=dim)
+    return linear_interp(x=x, coords=np.log(coords), at=np.log(at), dim=dim)
     
 def deep_convective_index(pressure, temperature, dewpoint, lifted_index, 
                           vert_dim='model_level_number', description=None, 
@@ -1672,7 +1660,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
         dewpoint=dat.dewpoint,
         vert_dim=vert_dim,
         depth=250, prefix='mu')
-    
+
     print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
     mixed_cape_cin_100, mixed_profile_100, _ = mixed_layer_cape_cin(
         pressure=dat.pressure,
