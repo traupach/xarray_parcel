@@ -1729,26 +1729,30 @@ def conv_properties(dat, vert_dim='model_level_number'):
     print('700-500 hPa lapse rate...')
     lapse = lapse_rate(pressure=dat.pressure, 
                        temperature=dat.temperature, 
-                       height=dat.geopotential_height)
+                       height=dat.geopotential_height,
+                       vert_dim=vert_dim,)
     lapse.name = 'lapse_rate_700_500'
 
     print('Temperature at 500 hPa...')
     temp_500 = isobar_temperature(pressure=dat.pressure, 
                                   temperature=dat.temperature, 
-                                  isobar=500)
+                                  isobar=500, 
+                                  vert_dim=vert_dim)
     temp_500.name = 'temp_500'
 
     print('Freezing level height...')
     flh = freezing_level_height(temperature=dat.temperature, 
-                                height=dat.geopotential_height)
+                                height=dat.geopotential_height,
+                                vert_dim=vert_dim)
 
     print('0-6 km vertical wind shear...')
-    shear = wind_shear(surface_wind_u=dat.wind_10m_u, 
-                       surface_wind_v=dat.wind_10m_v, 
+    shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
+                       surface_wind_v=dat.surface_wind_v, 
                        wind_u=dat.wind_u, 
                        wind_v=dat.wind_v, 
                        height=dat.geopotential_height, 
-                       shear_height=6000)
+                       shear_height=6000, 
+                       vert_dim=vert_dim)
 
     print('Merging results...')
     out = xarray.merge([mu_cape_cin, mu_mixing_ratio, 
