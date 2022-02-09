@@ -446,7 +446,7 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
                                                  'temperature': parcel_temperature},
                                                 method='nearest')
     adiabat_idx = adiabat_idx.adiabat.reset_coords(drop=True)
-    adiabats = this.moist_adiabats.sel(adiabat=adiabat_idx)
+    adiabats = this.moist_adiabats.sel(adiabat=adiabat_idx).squeeze()
 
     if isinstance(pressure, xarray.DataArray) and pressure.chunks is not None:
         adiabats = adiabats.chunk(chunks)
@@ -456,7 +456,7 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
     # Interpolate the adiabat to get the temperature at each requested
     # pressure.
     out = adiabats.temperature.interp(
-        {'pressure': pressure}).reset_coords(drop=True)
+        {'pressure': pressure.squeeze()}).reset_coords(drop=True)
     out.attrs['long_name'] = 'Moist lapse rate temperature'
     out.attrs['units'] = 'K'
     
@@ -724,6 +724,7 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
                                       at=level.pressure,
                                       dim=vert_dim)
             
+        assert not np.any(np.isnan(interp_level.temperature)), 'Environment level to insert contains nans.'    
         assert interp_level == level.pressure, 'Level pressure mismatch'
         
         new_environment = insert_level(d=environment, level=interp_level, 
@@ -788,7 +789,7 @@ def insert_level(d, level, coords, vert_dim='model_level_number',
   
     # Subset to keys from new only.
     out = out[list(new.keys())]
-    out = new.where(np.isnan(out), other=out)
+    out = new.where(np.isnan(out[coords]), other=out)
     
     # Replace fill_value with nans.
     out = out.where(out != fill_value, other=np.nan)
@@ -1519,8 +1520,7 @@ def lifted_index(profile, vert_dim='model_level_number', description=None,
     """
     
     # Interpolate to get 500 hPa values.
-    dat = log_interp(x=profile, coords=profile.pressure, at=500, 
-                     dim=vert_dim)
+    dat = log_interp(x=profile, coords=profile.pressure, at=500, dim=vert_dim)
     dat = dat.reset_coords(drop=True)
     
     # Calculate lifted index.
@@ -1537,8 +1537,7 @@ def lifted_index(profile, vert_dim='model_level_number', description=None,
     
 def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     """
-    Perform simple linear interpolation to get values at specified
-    points.
+    Perform simple linear interpolation.
     
     Arguments:
     
@@ -1552,6 +1551,26 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     # Coordinate values before and after (below and above?) the interp coord.
     coords_before = coords.where(coords >= at).min(dim=dim)
     coords_after = coords.where(coords <= at).max(dim=dim)
+    
+    # Nans in coords_before are points where we should extrapolate below the coordinate range.
+    # Nans in coords_after are points where we should extrapolate above the coordinate range.
+    extrap_below = np.isnan(coords_before)
+    extrap_above = np.isnan(coords_after)
+
+    if np.any(extrap_below) or np.any(extrap_above):
+        # Use the second lowest/highest points to determine extrapolation slopes.
+        second_lowest = coords.where(coords != coords.max(dim=dim)).max(dim=dim)
+        second_highest = coords.where(coords != coords.min(dim=dim)).min(dim=dim)
+        error = 'Duplicate min/max coordinate values disallow extrapolation.'
+        assert np.all(coords.where(coords == coords.max(dim=dim)).count(dim=dim) == 1), error
+        assert np.all(coords.where(coords == coords.min(dim=dim)).count(dim=dim) == 1), error
+
+        coords_before = coords_after.where(extrap_below, other=coords_before)
+        coords_after = second_lowest.where(extrap_below, other=coords_after)
+
+        coords_after = coords_before.where(extrap_above, other=coords_after)
+        coords_before = second_highest.where(extrap_above, other=coords_before)
+        assert len(np.unique(np.sign(coords_before - coords_after)) == 1), 'Extrapolation error.'
     
     x_before = x.where(coords == coords_before).min(dim=dim)
     x_before_max = x.where(coords == coords_before).max(dim=dim)
