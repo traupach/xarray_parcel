@@ -709,7 +709,6 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
     out.lcl_virtual_temperature.attrs['long name'] = 'Virtual temperature at LCL'
 
     if not environment is None:
-        
         # Interpolate the environment to get the level to insert. 
         # Note: MetPy uses a linear interpolator even on pressure levels.
         # By default I use the log interpolator for greater accuracy.
@@ -724,7 +723,6 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
                                       at=level.pressure,
                                       dim=vert_dim)
             
-        assert not np.any(np.isnan(interp_level.temperature)), 'Environment level to insert contains nans.'    
         assert interp_level == level.pressure, 'Level pressure mismatch'
         
         new_environment = insert_level(d=environment, level=interp_level, 
