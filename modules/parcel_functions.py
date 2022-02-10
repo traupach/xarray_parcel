@@ -1535,7 +1535,7 @@ def lifted_index(profile, vert_dim='model_level_number', description=None,
     
     return li
     
-def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
+def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True, extrapolate=False):
     """
     Perform simple linear interpolation.
     
@@ -1546,29 +1546,32 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
         - at: Points at which to interpolate.
         - dim: The dimension along which to interpolate.
         - keep_attrs: Keep attributes?
+        - extrapolate: Allow extrapolation for out of range points? (Default false since 
+                       linear interp innacurate with large extrapolations).
     """
     
     # Coordinate values before and after (below and above?) the interp coord.
     coords_before = coords.where(coords >= at).min(dim=dim)
     coords_after = coords.where(coords <= at).max(dim=dim)
 
-    # Nans in coords_before are points where we should extrapolate below the coordinate range.
-    # Nans in coords_after are points where we should extrapolate above the coordinate range.
-    extrap_below = np.isnan(coords_before)
-    extrap_above = np.isnan(coords_after)
+    if extrapolate:
+        # Nans in coords_before are points where we should extrapolate below the coordinate range.
+        # Nans in coords_after are points where we should extrapolate above the coordinate range.
+        extrap_below = np.isnan(coords_before)
+        extrap_above = np.isnan(coords_after)
 
-    if np.any(extrap_below) or np.any(extrap_above):
-        # Use the second lowest/highest points to determine extrapolation slopes.
-        second_lowest = coords.where(coords != coords.max(dim=dim)).max(dim=dim)
-        second_highest = coords.where(coords != coords.min(dim=dim)).min(dim=dim)
-        
-        # Note that duplicate min/max coordinate values are ignored here.
-        coords_before = coords_after.where(extrap_below, other=coords_before)
-        coords_after = second_lowest.where(extrap_below, other=coords_after)
+        if np.any(extrap_below) or np.any(extrap_above):
+            # Use the second lowest/highest points to determine extrapolation slopes.
+            second_lowest = coords.where(coords != coords.max(dim=dim)).max(dim=dim)
+            second_highest = coords.where(coords != coords.min(dim=dim)).min(dim=dim)
 
-        coords_after = coords_before.where(extrap_above, other=coords_after)
-        coords_before = second_highest.where(extrap_above, other=coords_before)
-        assert len(np.unique(np.sign(coords_before - coords_after)) == 1), 'Extrapolation error.'
+            # Note that duplicate min/max coordinate values are ignored here.
+            coords_before = coords_after.where(extrap_below, other=coords_before)
+            coords_after = second_lowest.where(extrap_below, other=coords_after)
+
+            coords_after = coords_before.where(extrap_above, other=coords_after)
+            coords_before = second_highest.where(extrap_above, other=coords_before)
+            assert len(np.unique(np.sign(coords_before - coords_after)) == 1), 'Extrapolation error.'
     
     # If there are duplicate coordinates, take the mean of the values 
     # for those coordinates.
