@@ -1551,7 +1551,7 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
     # Coordinate values before and after (below and above?) the interp coord.
     coords_before = coords.where(coords >= at).min(dim=dim)
     coords_after = coords.where(coords <= at).max(dim=dim)
-    
+
     # Nans in coords_before are points where we should extrapolate below the coordinate range.
     # Nans in coords_after are points where we should extrapolate above the coordinate range.
     extrap_below = np.isnan(coords_before)
@@ -1561,10 +1561,8 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
         # Use the second lowest/highest points to determine extrapolation slopes.
         second_lowest = coords.where(coords != coords.max(dim=dim)).max(dim=dim)
         second_highest = coords.where(coords != coords.min(dim=dim)).min(dim=dim)
-        error = 'Duplicate min/max coordinate values disallow extrapolation.'
-        assert np.all(coords.where(coords == coords.max(dim=dim)).count(dim=dim) == 1), error
-        assert np.all(coords.where(coords == coords.min(dim=dim)).count(dim=dim) == 1), error
-
+        
+        # Note that duplicate min/max coordinate values are ignored here.
         coords_before = coords_after.where(extrap_below, other=coords_before)
         coords_after = second_lowest.where(extrap_below, other=coords_after)
 
@@ -1572,13 +1570,10 @@ def linear_interp(x, coords, at, dim='model_level_number', keep_attrs=True):
         coords_before = second_highest.where(extrap_above, other=coords_before)
         assert len(np.unique(np.sign(coords_before - coords_after)) == 1), 'Extrapolation error.'
     
-    x_before = x.where(coords == coords_before).min(dim=dim)
-    x_before_max = x.where(coords == coords_before).max(dim=dim)
-    x_after = x.where(coords == coords_after).min(dim=dim)
-    x_after_max = x.where(coords == coords_after).max(dim=dim)
-    
-    assert np.abs(x_before_max - x_before).max() < 1e-5, 'Duplicate coordinates with differing values.'
-    assert np.abs(x_after_max - x_after).max() < 1e-5, 'Duplicate coordinates with differing values.'
+    # If there are duplicate coordinates, take the mean of the values 
+    # for those coordinates.
+    x_before = x.where(coords == coords_before).mean(dim=dim)
+    x_after = x.where(coords == coords_after).mean(dim=dim)
     
     # The interpolated values.
     res = x_before + (x_after - x_before) * ((at - coords_before) /
