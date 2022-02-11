@@ -597,7 +597,7 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
     out['virtual_temperature'] = virtual_temperature(
         temperature=out.temperature,
         mixing_ratio=mixing_ratios)
-
+    
     out = out.reset_coords(drop=True)
     return out
 
@@ -722,9 +722,9 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
                                       coords=environment.pressure,
                                       at=level.pressure,
                                       dim=vert_dim)
-            
-        assert interp_level == level.pressure, 'Level pressure mismatch'
         
+        # Set the interpolated pressure.
+        interp_level['pressure'] = level.pressure
         new_environment = insert_level(d=environment, level=interp_level, 
                                        coords='pressure', vert_dim=vert_dim)
         
@@ -945,10 +945,14 @@ def lfc_el(pressure, parcel_temperature, temperature,
     # If at the top of the atmosphere the parcel profile is warmer
     # than the environment, no EL exists. Also if EL is lower than or
     # equal to LCL, no EL exists.
-    top_pressure = pressure == pressure.min(dim=vert_dim)
+    temps_available = np.logical_and(~np.isnan(parcel_temperature),
+                                     ~np.isnan(temperature))
+    top_pressure = pressure == pressure.where(temps_available).min(dim=vert_dim)
     top_prof_temp = parcel_temperature.where(top_pressure).max(dim=vert_dim)
     top_env_temp = temperature.where(
         top_pressure).max(dim=vert_dim)
+    
+    assert not np.any(np.isnan(top_env_temp)), 'Top temperature is NaN.'
     
     top_colder = top_prof_temp <= top_env_temp
     el_above_lcl = out.el_pressure < lcl_pressure
@@ -1598,7 +1602,9 @@ def log_interp(x, coords, at, dim='model_level_number'):
         - at: Points at which to interpolate.
         - dim: The dimension along which to interpolate.
     
-    It is assumed that x[coords] is sorted.
+    It is assumed that x[coords] is sorted. Note that if coordinates themselves 
+    are also interpolated, the returned coordinate values will not equal the 
+    value of 'at'.
     """
     
     return linear_interp(x=x, coords=np.log(coords), at=np.log(at), dim=dim)
@@ -1667,6 +1673,8 @@ def conv_properties(dat, vert_dim='model_level_number'):
         specific_humidity=dat.specific_humidity)
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
+    
+    assert not np.any(np.isnan(dat.dewpoint)), 'Dewpoint calculation failed for some points.'
 
     print('Calculating most-unstable CAPE and CIN...')
     mu_cape_cin, mu_profile, mu_parcel = most_unstable_cape_cin(
