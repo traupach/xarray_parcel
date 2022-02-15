@@ -11,6 +11,7 @@ import xarray
 import numpy as np
 from metpy.units import units
 import metpy.constants as mpconsts
+import metpy.calc
 
 # Class global variables to contain moist adiabat lookup tables.
 this = sys.modules[__name__]
@@ -1178,8 +1179,10 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
 
     # Set any positive values for CIN to 0.
     cin = cin.where(cin <= 0, other=0)
-
-    return xarray.merge([cape, cin])
+    
+    res = xarray.merge([cape, cin])
+    res.attrs = []
+    return res
 
 def cape_cin(pressure, temperature, dewpoint, parcel_temperature, parcel_pressure,
              parcel_dewpoint, vert_dim='model_level_number', 
@@ -1331,6 +1334,7 @@ def from_most_unstable_parcel(pressure, temperature, dewpoint,
     assert dewpoint.name == 'dewpoint', 'Dewpoint requires name dewpoint.'
         
     dat = xarray.merge([pressure, temperature, dewpoint])
+    dat.attrs = []
         
     # Find the most unstable layer in the lowest 'depth' hPa.
     unstable_layer = most_unstable_parcel(dat=dat, depth=depth, 
@@ -1674,8 +1678,13 @@ def conv_properties(dat, vert_dim='model_level_number'):
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
     
-    assert not np.any(np.isnan(dat.dewpoint)), 'Dewpoint calculation failed for some points.'
-
+    valid_points = np.logical_and(~np.isnan(dat.dewpoint).any(vert_dim),
+                                  ~np.isnan(dat.pressure).any(vert_dim))
+    valid_points = np.logical_and(valid_points,
+                                  ~np.isnan(dat.temperature).any(vert_dim))
+    valid_points = np.logical_and(valid_points,
+                                  ~np.isnan(dat.specific_humidity).any(vert_dim))
+                                  
     print('Calculating most-unstable CAPE and CIN...')
     mu_cape_cin, mu_profile, mu_parcel = most_unstable_cape_cin(
         pressure=dat.pressure,
@@ -1784,9 +1793,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
                         mu_dci, mixed_dci_100, mixed_dci_50, lapse, 
                         temp_500, flh, shear])
     
-    del out.attrs['units']
-    del out.attrs['long_name']
-    
+    out = out.where(valid_points, other=np.nan)
     return out
         
 def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500, 
