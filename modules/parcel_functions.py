@@ -1662,7 +1662,8 @@ def conv_properties(dat, vert_dim='model_level_number'):
     Arguments:
     
        - dat: An xarray Dataset containing pressure, temperature, and 
-              specific humidity.
+              specific humidity, wind data, and height ('height' for all 
+              variables except wind, 'wind_height' for wind levels).
        - vert_dim: The name of the vertical dimension in the dataset.
             
     Returns:
@@ -1761,7 +1762,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
     print('700-500 hPa lapse rate...')
     lapse = lapse_rate(pressure=dat.pressure, 
                        temperature=dat.temperature, 
-                       height=dat.geopotential_height,
+                       height=dat.height_asl,
                        vert_dim=vert_dim,)
     lapse.name = 'lapse_rate_700_500'
 
@@ -1774,7 +1775,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
 
     print('Freezing level height...')
     flh = freezing_level_height(temperature=dat.temperature, 
-                                height=dat.geopotential_height,
+                                height=dat.height_asl,
                                 vert_dim=vert_dim)
 
     print('0-6 km vertical wind shear...')
@@ -1782,7 +1783,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
                        surface_wind_v=dat.surface_wind_v, 
                        wind_u=dat.wind_u, 
                        wind_v=dat.wind_v, 
-                       height=dat.geopotential_height, 
+                       height=dat.wind_height_above_surface, 
                        shear_height=6000, 
                        vert_dim=vert_dim)
 
@@ -1984,4 +1985,86 @@ def valid_data(dat, vert_dim):
     assert np.all(dat.pressure.diff(dim=vert_dim) < 0), 'Pressures must decrease with increasing level number.'
     return True
     
+def storm_proxies(dat):
+    """
+    Calculate storm proxies.
     
+    Arguments:
+    
+        - dat: Data as returned by conv_properties().
+        
+    Returns:
+    
+        - DataSet with proxy values (binary, 1=proxy triggered, 0=proxy untriggered).
+    """
+    
+    # Ignore negative CAPE.
+    dat = dat.rename({'shear_magnitude': 'S06'})
+    dat['mixed_100_cape'] = dat.mixed_100_cape.where(dat.mixed_100_cape >= 0)
+    dat['mixed_50_cape'] = dat.mixed_50_cape.where(dat.mixed_50_cape >= 0)
+    dat['mu_cape'] = dat.mu_cape.where(dat.mu_cape >= 0)
+
+    out = xarray.Dataset()
+
+    # Proxy calculations.
+    print('\tCraven 2004...')
+    out['proxy_Craven2004'] = (dat.mixed_100_cape * dat.S06) >= 20000
+
+    print('\tKunz 2007...')
+    out['proxy_Kunz2007'] = np.logical_or(dat.mixed_100_lifted_index <= -2.07,
+                                          np.logical_or(dat.mu_cape >= 1474,
+                                                        dat.mixed_100_dci >= 25.7))
+
+    print('\tTrapp 2007...')
+    out['proxy_Trapp2007'] = np.logical_and(dat.mixed_100_cape * dat.S06 >= 10000,
+                                            dat.mixed_100_cape >= 100)
+    out['proxy_Trapp2007'] = np.logical_and(out.proxy_Trapp2007, dat.S06 >= 5)
+    out['proxy_Trapp2007'] = np.logical_and(out.proxy_Trapp2007, dat.positive_shear)
+
+    print('\tMarsh 2009...')
+    out['proxy_Marsh2009'] = (dat.mixed_100_cape * dat.S06) >= 10000
+
+    print('\tAllen 2011...')
+    out['proxy_Allen2011'] = np.logical_and(dat.mixed_50_cape * dat.S06**1.67 >= 115000,
+                                            dat.mixed_50_cin > -25)
+    out['proxy_Allen2011'] = np.logical_and(out.proxy_Allen2011,
+                                            dat.S06 > 7.5)
+    out['proxy_Allen2011'] = np.logical_and(out.proxy_Allen2011,
+                                            dat.lapse_rate_700_500 < -6.5)
+
+    print('\tEccel 2012...')
+    out['proxy_Eccel2012'] = np.logical_and(dat.mixed_100_cape * dat.S06 > 10000, 
+                                            dat.mixed_100_cin > -50)
+
+    print('\tMohr 2013...')
+    out['proxy_Mohr2013'] = np.logical_or(dat.mixed_100_lifted_index <= -1.6,
+                                          dat.mixed_100_cape >= 439)
+
+    # Significant hail parameter.
+    print('\tSHIP...')
+    out['ship'] = significant_hail_parameter(mucape=dat.mu_cape,
+                                             mixing_ratio=dat.mu_mixing_ratio,
+                                             lapse=dat.lapse_rate_700_500,
+                                             temp_500=dat.temp_500,
+                                             shear=dat.S06,
+                                             flh=dat.freezing_level)
+    print('\tSHIP thresholds...')
+    out['proxy_SHIP_0.5'] = out.ship > 0.5
+    out['proxy_SHIP_0.1'] = out.ship > 0.1
+    out.ship.attrs['long_name'] = 'Significant hail parameter (SHIP)'
+
+    # Define proxies and which study they are from.
+    proxies = {'proxy_Craven2004': 'Craven 2004',
+               'proxy_Kunz2007': 'Kunz 2007',
+               'proxy_Trapp2007': 'Trapp 2007',
+               'proxy_Marsh2009': 'Marsh 2009',
+               'proxy_Allen2011': 'Allen 2011',
+               'proxy_Eccel2012': 'Eccel 2012',
+               'proxy_Mohr2013': 'Mohr 2013',
+               'proxy_SHIP_0.5': 'SHIP > 0.5',
+               'proxy_SHIP_0.1': 'SHIP > 0.1'}
+
+    for proxy, val in proxies.items():
+        out[proxy].attrs['long_name'] = 'Proxy ' + val
+        
+    return out
