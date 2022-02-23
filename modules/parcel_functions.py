@@ -1493,7 +1493,6 @@ def shift_out_nans(x, name, dim):
         - x: The data to work on.
         - name: The name within data in which to look for nans.
         - dim: The dimension to shift.
-        - pt: The index along the dimension to shift 'to'.
 
     """
     
@@ -1655,7 +1654,7 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index,
     
     return dci
 
-def conv_properties(dat, vert_dim='model_level_number'):
+def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
     """
     Calculate selected convective properties for a set of points. 
     
@@ -1685,7 +1684,7 @@ def conv_properties(dat, vert_dim='model_level_number'):
                                   ~np.isnan(dat.temperature).any(vert_dim))
     valid_points = np.logical_and(valid_points,
                                   ~np.isnan(dat.specific_humidity).any(vert_dim))
-                                  
+
     print('Calculating most-unstable CAPE and CIN...')
     mu_cape_cin, mu_profile, mu_parcel = most_unstable_cape_cin(
         pressure=dat.pressure,
@@ -1794,7 +1793,8 @@ def conv_properties(dat, vert_dim='model_level_number'):
                         mu_dci, mixed_dci_100, mixed_dci_50, lapse, 
                         temp_500, flh, shear])
     
-    out = out.where(valid_points, other=np.nan)
+    if not ignore_nans:
+        out = out.where(valid_points, other=np.nan)
     return out
         
 def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500, 
@@ -1982,7 +1982,7 @@ def valid_data(dat, vert_dim):
     """
     
     assert np.all(np.abs(dat[vert_dim].diff(dim=vert_dim)) == 1), 'Index increments must all be 1.'
-    assert np.all(dat.pressure.diff(dim=vert_dim) < 0), 'Pressures must decrease with increasing level number.'
+    assert dat.pressure.diff(dim=vert_dim).max() < 0, 'Pressures must decrease with increasing level number.'
     return True
     
 def storm_proxies(dat):
@@ -2024,12 +2024,12 @@ def storm_proxies(dat):
     print('\tMarsh 2009...')
     out['proxy_Marsh2009'] = (dat.mixed_100_cape * dat.S06) >= 10000
 
-    print('\tAllen 2011...')
-    out['proxy_Allen2011'] = np.logical_and(dat.mixed_50_cape * dat.S06**1.67 >= 115000,
+    print('\tAllen 2014...')
+    out['proxy_Allen2014'] = np.logical_and(dat.mixed_50_cape * dat.S06**1.67 >= 25000,
                                             dat.mixed_50_cin > -25)
-    out['proxy_Allen2011'] = np.logical_and(out.proxy_Allen2011,
+    out['proxy_Allen2014'] = np.logical_and(out.proxy_Allen2014,
                                             dat.S06 > 7.5)
-    out['proxy_Allen2011'] = np.logical_and(out.proxy_Allen2011,
+    out['proxy_Allen2014'] = np.logical_and(out.proxy_Allen2014,
                                             dat.lapse_rate_700_500 < -6.5)
 
     print('\tEccel 2012...')
@@ -2039,6 +2039,8 @@ def storm_proxies(dat):
     print('\tMohr 2013...')
     out['proxy_Mohr2013'] = np.logical_or(dat.mixed_100_lifted_index <= -1.6,
                                           dat.mixed_100_cape >= 439)
+    out['proxy_Mohr2013'] = np.logical_or(dat.proxy_Mohr2013,
+                                          dat.mixed_100_dci >= 26.4)
 
     # Significant hail parameter.
     print('\tSHIP...')
@@ -2058,7 +2060,7 @@ def storm_proxies(dat):
                'proxy_Kunz2007': 'Kunz 2007',
                'proxy_Trapp2007': 'Trapp 2007',
                'proxy_Marsh2009': 'Marsh 2009',
-               'proxy_Allen2011': 'Allen 2011',
+               'proxy_Allen2014': 'Allen 2014',
                'proxy_Eccel2012': 'Eccel 2012',
                'proxy_Mohr2013': 'Mohr 2013',
                'proxy_SHIP_0.5': 'SHIP > 0.5',
