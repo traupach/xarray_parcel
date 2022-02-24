@@ -2039,7 +2039,7 @@ def storm_proxies(dat):
     print('\tMohr 2013...')
     out['proxy_Mohr2013'] = np.logical_or(dat.mixed_100_lifted_index <= -1.6,
                                           dat.mixed_100_cape >= 439)
-    out['proxy_Mohr2013'] = np.logical_or(dat.proxy_Mohr2013,
+    out['proxy_Mohr2013'] = np.logical_or(out.proxy_Mohr2013,
                                           dat.mixed_100_dci >= 26.4)
 
     # Significant hail parameter.
