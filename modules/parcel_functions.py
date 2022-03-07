@@ -1654,6 +1654,75 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index,
     
     return dci
 
+def hail_properties(dat, vert_dim='model_level_number'):
+    """
+    Calculate properties required for hail proxy.
+    
+     Arguments:
+    
+       - dat: An xarray Dataset containing pressure, temperature, and 
+              specific humidity, wind data, and height ('height' for all 
+              variables except wind, 'wind_height' for wind levels).
+       - vert_dim: The name of the vertical dimension in the dataset.
+            
+    Returns:
+    
+        - Dataset containing convection properties for each point.
+    """
+    
+    print('Calculating dewpoint...')
+    dat['dewpoint'] = metpy.calc.dewpoint_from_specific_humidity(
+        pressure=dat.pressure,
+        temperature=dat.temperature,
+        specific_humidity=dat.specific_humidity)
+    dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
+    dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
+    
+    print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
+    mixed_cape_cin_100, mixed_profile_100, _ = mixed_layer_cape_cin(
+        pressure=dat.pressure,
+        temperature=dat.temperature, 
+        dewpoint=dat.dewpoint,
+        vert_dim=vert_dim,
+        prefix='mixed_100')
+    
+    print('Calculating lifted indices...')
+    mixed_li_100 = lifted_index(profile=mixed_profile_100, vert_dim=vert_dim, 
+                                prefix='mixed_100', 
+                                description=('Lifted index using fully-mixed ' + 
+                                             'lowest 100 hPa parcel.'))
+    
+    print('700-500 hPa lapse rate...')
+    lapse = lapse_rate(pressure=dat.pressure, 
+                       temperature=dat.temperature, 
+                       height=dat.height_asl,
+                       vert_dim=vert_dim,)
+    lapse.name = 'lapse_rate_700_500'
+
+    print('Temperature at 500 hPa...')
+    temp_500 = isobar_temperature(pressure=dat.pressure, 
+                                  temperature=dat.temperature, 
+                                  isobar=500, 
+                                  vert_dim=vert_dim)
+    temp_500.name = 'temp_500'
+    
+    print('Freezing level height...')
+    flh = freezing_level_height(temperature=dat.temperature, 
+                                height=dat.height_asl,
+                                vert_dim=vert_dim)
+    
+    print('0-6 km vertical wind shear...')
+    shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
+                       surface_wind_v=dat.surface_wind_v, 
+                       wind_u=dat.wind_u, 
+                       wind_v=dat.wind_v, 
+                       height=dat.wind_height_above_surface, 
+                       shear_height=6000, 
+                       vert_dim=vert_dim)
+
+    print('Merging results...')
+    out = xarray.merge([mixed_cape_cin_100, mixed_li_100, lapse, temp_500, flh, shear])
+    
 def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
     """
     Calculate selected convective properties for a set of points. 
@@ -1664,6 +1733,7 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
               specific humidity, wind data, and height ('height' for all 
               variables except wind, 'wind_height' for wind levels).
        - vert_dim: The name of the vertical dimension in the dataset.
+       - ignore_nans: Only return values where there are no nans?
             
     Returns:
     
