@@ -1686,11 +1686,12 @@ def hail_properties(dat, vert_dim='model_level_number'):
         temperature=dat.temperature, 
         dewpoint=dat.dewpoint,
         vert_dim=vert_dim,
+        depth=100,
         prefix='mixed_100')
     
     print('Calculating lifted indices...')
     mixed_li_100 = lifted_index(profile=mixed_profile_100, vert_dim=vert_dim, 
-                                prefix='mixed_100', 
+                                prefix='mixed_100', depth=100,
                                 description=('Lifted index using fully-mixed ' + 
                                              'lowest 100 hPa parcel.'))
     
