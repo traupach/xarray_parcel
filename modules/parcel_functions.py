@@ -2173,7 +2173,7 @@ def storm_proxies(dat):
     out['proxy_Allen2011'] = dat.mixed_50_cape * dat.S06**1.67 >= 25000
 
     # Allen 2014.
-    out['proxy_Allen2014'] = np.logical_and(dat.mixed_50_cape * dat.S06**1.67 >= 25000,
+    out['proxy_Allen2014'] = np.logical_and(out.proxy_Allen2011,
                                             dat.mixed_50_cin > -25)
     out['proxy_Allen2014'] = np.logical_and(out.proxy_Allen2014,
                                             dat.S06 > 7.5)
@@ -2197,7 +2197,6 @@ def storm_proxies(dat):
                                              temp_500=dat.temp_500,
                                              shear=dat.S06,
                                              flh=dat.freezing_level)
-    out['proxy_SHIP_0.5'] = out.ship > 0.5
     out['proxy_SHIP_0.1'] = out.ship > 0.1
     out.ship.attrs['long_name'] = 'Significant hail parameter (SHIP)'
 
@@ -2210,7 +2209,6 @@ def storm_proxies(dat):
                'proxy_Allen2014': 'Allen 2014',
                'proxy_Eccel2012': 'Eccel 2012',
                'proxy_Mohr2013': 'Mohr 2013',
-               'proxy_SHIP_0.5': 'SHIP > 0.5',
                'proxy_SHIP_0.1': 'SHIP > 0.1'}
 
     for proxy, val in proxies.items():
