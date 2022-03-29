@@ -2210,6 +2210,7 @@ def storm_proxies(dat):
                'proxy_Allen2014': 'Allen 2014',
                'proxy_Eccel2012': 'Eccel 2012',
                'proxy_Mohr2013': 'Mohr 2013',
+               'proxy_SHIP_0.5': 'SHIP > 0.5',
                'proxy_SHIP_0.1': 'SHIP > 0.1'}
 
     for proxy, val in proxies.items():
