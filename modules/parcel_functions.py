@@ -2152,24 +2152,27 @@ def storm_proxies(dat):
     out = xarray.Dataset()
 
     # Proxy calculations.
-    print('\tCraven 2004...')
+    # Craven 2004.
     out['proxy_Craven2004'] = (dat.mixed_100_cape * dat.S06) >= 20000
-
-    print('\tKunz 2007...')
+    
+    # Kunz 2007.
     out['proxy_Kunz2007'] = np.logical_or(dat.mixed_100_lifted_index <= -2.07,
                                           np.logical_or(dat.mu_cape >= 1474,
                                                         dat.mixed_100_dci >= 25.7))
 
-    print('\tTrapp 2007...')
+    # Trapp 2007.
     out['proxy_Trapp2007'] = np.logical_and(dat.mixed_100_cape * dat.S06 >= 10000,
                                             dat.mixed_100_cape >= 100)
     out['proxy_Trapp2007'] = np.logical_and(out.proxy_Trapp2007, dat.S06 >= 5)
     out['proxy_Trapp2007'] = np.logical_and(out.proxy_Trapp2007, dat.positive_shear)
 
-    print('\tMarsh 2009...')
+    # Marsh 2009.
     out['proxy_Marsh2009'] = (dat.mixed_100_cape * dat.S06) >= 10000
+    
+    # Allen 2011.
+    out['proxy_Allen2011'] = dat.mixed_50_cape * dat.S06**1.67 >= 25000
 
-    print('\tAllen 2014...')
+    # Allen 2014.
     out['proxy_Allen2014'] = np.logical_and(dat.mixed_50_cape * dat.S06**1.67 >= 25000,
                                             dat.mixed_50_cin > -25)
     out['proxy_Allen2014'] = np.logical_and(out.proxy_Allen2014,
@@ -2177,25 +2180,23 @@ def storm_proxies(dat):
     out['proxy_Allen2014'] = np.logical_and(out.proxy_Allen2014,
                                             dat.lapse_rate_700_500 < -6.5)
 
-    print('\tEccel 2012...')
+    # Eccel 2012.
     out['proxy_Eccel2012'] = np.logical_and(dat.mixed_100_cape * dat.S06 > 10000, 
                                             dat.mixed_100_cin > -50)
 
-    print('\tMohr 2013...')
+    # Mohr 2013.
     out['proxy_Mohr2013'] = np.logical_or(dat.mixed_100_lifted_index <= -1.6,
                                           dat.mixed_100_cape >= 439)
     out['proxy_Mohr2013'] = np.logical_or(out.proxy_Mohr2013,
                                           dat.mixed_100_dci >= 26.4)
 
     # Significant hail parameter.
-    print('\tSHIP...')
     out['ship'] = significant_hail_parameter(mucape=dat.mu_cape,
                                              mixing_ratio=dat.mu_mixing_ratio,
                                              lapse=dat.lapse_rate_700_500,
                                              temp_500=dat.temp_500,
                                              shear=dat.S06,
                                              flh=dat.freezing_level)
-    print('\tSHIP thresholds...')
     out['proxy_SHIP_0.5'] = out.ship > 0.5
     out['proxy_SHIP_0.1'] = out.ship > 0.1
     out.ship.attrs['long_name'] = 'Significant hail parameter (SHIP)'
@@ -2205,10 +2206,10 @@ def storm_proxies(dat):
                'proxy_Kunz2007': 'Kunz 2007',
                'proxy_Trapp2007': 'Trapp 2007',
                'proxy_Marsh2009': 'Marsh 2009',
+               'proxy_Allen2011': 'Allen 2011',
                'proxy_Allen2014': 'Allen 2014',
                'proxy_Eccel2012': 'Eccel 2012',
                'proxy_Mohr2013': 'Mohr 2013',
-               'proxy_SHIP_0.5': 'SHIP > 0.5',
                'proxy_SHIP_0.1': 'SHIP > 0.1'}
 
     for proxy, val in proxies.items():
