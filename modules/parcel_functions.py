@@ -335,7 +335,7 @@ def round_to(x, to, dp=2):
     """
     return np.round(np.round(x / to) * to, dp)
 
-def moist_adiabat_lookup(pressure_levels=np.round(np.arange(1100, 0,
+def moist_adiabat_lookup(pressure_levels=np.round(np.arange(1100, 2,
                                                             step=-0.5), 1),
                          temperatures=np.round(np.arange(173, 316,
                                                          step=0.02), 2),
