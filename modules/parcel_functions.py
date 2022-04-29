@@ -532,7 +532,7 @@ def mixing_ratio(temperature, dewpoint, pressure):
     
     if isinstance(res, xarray.DataArray):
         res = res.metpy.dequantify()
-        res.attrs['units'] = 'kg kg-1'
+        res.attrs['units'] = 'kg kg$^{-1}$'
         
     return res
 
@@ -1163,7 +1163,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
     cape = cape + (mpconsts.Rd.m * areas_lfc_to_el.area.sum(dim=vert_dim))
     cape.name = 'cape'
     cape.attrs['long_name'] = 'Convective available potential energy'
-    cape.attrs['units'] = 'J kg-1'
+    cape.attrs['units'] = 'J kg$^{-1}$'
 
     # Integrate between surface and LFC to get CIN.
     temp_diffs_surf_to_lfc = temp_diffs.where(pressure >= lfc_pressure)
@@ -1175,7 +1175,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
     cin = cin + (mpconsts.Rd.m * areas_surf_to_lfc.area.sum(dim=vert_dim))
     cin.name = 'cin'
     cin.attrs['long_name'] = 'Convective inhibition'
-    cin.attrs['units'] = 'J kg-1'
+    cin.attrs['units'] = 'J kg$^{-1}$'
 
     # Set any positive values for CIN to 0.
     cin = cin.where(cin <= 0, other=0)
@@ -1958,7 +1958,7 @@ def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500
         
     Returns:
     
-        - Lapse rate between two levels at each point [K/km].
+        - Lapse rate between two levels at each point [K km-1].
     """
     
     from_temperature = log_interp(x=temperature, coords=pressure, 
@@ -1973,7 +1973,7 @@ def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500
     lapse = (to_temperature - from_temperature) / (to_height - from_height)
     lapse.attrs['long_name'] = 'Lapse rate'
     lapse.attrs['description'] = f'{from_pressure}-{to_pressure} hPa lapse rate'
-    lapse.attrs['units'] = 'K/km'
+    lapse.attrs['units'] = 'K km$^{-1}$'
     
     return lapse
 
@@ -2064,7 +2064,7 @@ def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_hei
     out = xarray.merge([shear_u, shear_v, shear_magnitude, positive_shear], 
                        combine_attrs='drop_conflicts')
     for v in ['shear_u', 'shear_v', 'shear_magnitude']:
-        out[v].attrs['units'] = 'm s-1'
+        out[v].attrs['units'] = 'm s$^{-1}$'
         
     return out
 
@@ -2077,7 +2077,7 @@ def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh
     
         - mucape: Most unstable parcel CAPE [J kg-1].
         - mixing_ratio: Mixing ratio of the most unstable parcel [kg kg-1].
-        - lapse: 700-500 hPa lapse rate [K/km].
+        - lapse: 700-500 hPa lapse rate [K km-1].
         - temp_500: Temperature at 500 hPa [K].
         - shear: 0-6 km bulk wind shear [m s-1].
         - flh: Freezing level height [m].
@@ -2111,7 +2111,7 @@ def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh
     
     # Metadata.
     ship.attrs['long_name'] = 'Significant hail parameter'
-    ship.attrs['units'] = 'J kg-2 g K^2 km-1 m s-1'
+    ship.attrs['units'] = 'J kg$^{-2}$ g K$^2$ km$^{-1}$ m s$^{-1}$'
     
     return ship
 
