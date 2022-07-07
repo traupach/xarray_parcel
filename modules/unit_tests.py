@@ -67,7 +67,36 @@ def run_all_tests():
     test_lcl_grid_surface_lcls()
     test_lifted_index()
     test_profile_with_lcl_in_levels()
+    test_wet_bulb_temperature()
+    test_wet_bulb_temperature_saturated()
     print('All tests passed.')
+    
+def test_wet_bulb_temperature(dp=5):
+    """Test wet bulb calculation with scalars."""
+    temp = vert_array([25+273.15], 'K')
+    dewp = vert_array([15+273.15], 'K')
+    levels=vert_array([1000.], 'hPa')
+
+    val = parcel.wet_bulb_temperature(pressure=levels, temperature=temp, dewpoint=dewp)
+    truth = 18.3432116+273.15 # 18.59 C from NWS calculator
+    assert_almost_equal(val, truth, dp)
+
+def test_wet_bulb_temperature_saturated(dp=7):
+    """Test wet bulb calculation works properly with saturated conditions."""
+    temp = vert_array([17.6+273.15], 'K')
+    dewp = vert_array([17.6+273.15], 'K')
+    levels=vert_array([850.], 'hPa')
+                      
+    val = parcel.wet_bulb_temperature(pressure=levels, temperature=temp, dewpoint=dewp)
+    assert_almost_equal(val, 17.6+273.15, dp)
+
+def test_wet_bulb_temperature_1d(dp=5):
+    """Test wet bulb calculation with 1d list."""
+    pressures = vert_array([1013, 1000, 990], 'hPa')
+    temperatures = vert_array(np.array([25, 20, 15])+273.15, 'K')
+    dewpoints = vert_array(np.array([20, 15, 10])+273.15, 'K')
+    val = parcel.wet_bulb_temperature(pressure=pressures, temperature=temperatures, dewpoint=dewpoints)
+    assert_array_almost_equal(val.values, np.array([21.44487, 16.73673, 12.06554])+273.15, decimal=dp)
     
 def run_moist_lapse_tests_looser():
     """Run all the tests, with looser matching requirements."""
@@ -75,9 +104,10 @@ def run_moist_lapse_tests_looser():
     test_moist_lapse_ref_pres()
     test_moist_lapse_scalar()
     test_moist_lapse_uniform(dp=2)
+    test_wet_bulb_temperature_1d(dp=2)
     print('Moist lapse tests passed.')
 
-def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None):
+def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None, **kwargs):
     """A wrapper for metpy's moist_lapse()."""
 
     vert_coords = None

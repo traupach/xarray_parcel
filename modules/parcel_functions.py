@@ -335,6 +335,46 @@ def round_to(x, to, dp=2):
     """
     return np.round(np.round(x / to) * to, dp)
 
+def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_number'):
+    """
+    Calculate wet-bulb pressure using "Normand's rule" -- see Knox et al., 2017 
+    (https://doi.org/10.1175/BAMS-D-16-0246.1) for a description of the method.
+
+    Arguments:
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpoint temperatures [K].
+        - vert_dim: The vertical dimension to operate on.
+        
+    Returns:
+    
+        - The wet bulb temperature of each point.
+    """
+    
+    # For each point, lift up the dry adiabat until we reach the LCL.
+    lcls = lcl(parcel_pressure=pressure, parcel_temperature=temperature, parcel_dewpoint=dewpoint)
+    
+    if vert_dim in pressure.coords:
+        
+        ml = xarray.zeros_like(pressure)
+        for v in pressure[vert_dim]:
+            ml.loc[{vert_dim: v}] = moist_lapse(pressure=pressure.sel({vert_dim: v}),
+                                                parcel_temperature=lcls.lcl_temperature.sel({vert_dim: v}),
+                                                parcel_pressure=lcls.lcl_pressure.sel({vert_dim: v}),
+                                                vert_dim=vert_dim)
+    else:
+        ml = moist_lapse(pressure=pressure,
+                         parcel_temperature=lcls.lcl_temperature,
+                         parcel_pressure=lcls.lcl_pressure,
+                         vert_dim=vert_dim)
+
+    ml = ml.reset_coords(drop=True)
+    ml.name = 'wet_bulb_temperature'
+    ml.attrs['long_name'] = 'Wet bulb temperature'
+    ml.attrs['units'] = 'K'
+
+    return(ml)
+
 def moist_adiabat_lookup(pressure_levels=np.round(np.arange(1100, 2,
                                                             step=-0.5), 1),
                          temperatures=np.round(np.arange(173, 316,
@@ -433,7 +473,7 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
 
     Returns:
 
-        - Parcel temperature at each pressure level.
+        - Temperature of each parcel lifted to each pressure level.
     """
 
     lookup_tables_loaded()
@@ -447,7 +487,16 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
                                                  'temperature': parcel_temperature},
                                                 method='nearest')
     adiabat_idx = adiabat_idx.adiabat.reset_coords(drop=True)
+    
+    # Replace points without an adiabat with an index (1) so the lookup works;
+    # these will be set to nans later.
+    valid = np.logical_not(np.isnan(adiabat_idx))
+    adiabat_idx = adiabat_idx.where(valid, other=1)
+    
     adiabats = this.moist_adiabats.sel(adiabat=adiabat_idx).squeeze()
+    
+    # Reset replaced points.
+    adiabats = adiabats.where(valid, other=np.nan)
 
     if isinstance(pressure, xarray.DataArray) and pressure.chunks is not None:
         adiabats = adiabats.chunk(chunks)
@@ -461,6 +510,11 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
     out.attrs['long_name'] = 'Moist lapse rate temperature'
     out.attrs['units'] = 'K'
     
+    # Don't return values where inputs are nan.
+    out = out.where(np.logical_not(np.isnan(parcel_temperature)))
+    out = out.where(np.logical_not(np.isnan(parcel_pressure)))
+    out = out.where(np.logical_not(np.isnan(pressure)))
+    
     return out
 
 def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
@@ -471,12 +525,23 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
 
         - parcel_pressure: Pressure of the parcel to lift [hPa].
         - parcel_temperature: Parcel temperature [K].
-        - parfel_dewpoint: Parcel dewpoint [K].
+        - parcel_dewpoint: Parcel dewpoint [K].
     
     Returns:
 
         - A Dataset with lcl_pressure and lcl_temperature.
     """
+    
+    # MetPy LCL can't handle nans. Replace NaNs with a valid set of 
+    # pressure/temperature/dewpoint for lcl to use; then discard results
+    # before returning.
+    valid_points = np.logical_not(np.logical_or(np.logical_or(np.isnan(parcel_pressure),
+                                                              np.isnan(parcel_temperature)),
+                                                np.isnan(parcel_dewpoint)))
+    
+    parcel_pressure = parcel_pressure.where(valid_points, other=1000)
+    parcel_temperature = parcel_temperature.where(valid_points, other=273.15)
+    parcel_dewpoint = parcel_dewpoint.where(valid_points, other=273.15)
     
     press_lcl, temp_lcl = metpy.calc.lcl(pressure=parcel_pressure, 
                                          temperature=parcel_temperature, 
@@ -505,6 +570,9 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     out.lcl_virtual_temperature.attrs['long_name'] = ('Lifting condensation ' +
                                                       'level virtual temperature')
     out.lcl_virtual_temperature.attrs['units'] = 'K'
+    
+    # Only return valid points.
+    out = out.where(valid_points)
     
     return out
 
@@ -1680,6 +1748,12 @@ def hail_properties(dat, vert_dim='model_level_number'):
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
     
+    print('Calculating wet bulb temperature...')
+    dat['wet_bulb_temperature'] = wet_bulb_temperature(pressure=dat.pressure,
+                                                       temperature=dat.temperature,
+                                                       dewpoint=dat.dewpoint,
+                                                       vert_dim=vert_dim)
+    
     print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
     mixed_cape_cin_100, mixed_profile_100, _ = mixed_layer_cape_cin(
         pressure=dat.pressure,
@@ -1710,7 +1784,7 @@ def hail_properties(dat, vert_dim='model_level_number'):
     temp_500.name = 'temp_500'
     
     print('Freezing level height...')
-    flh = freezing_level_height(temperature=dat.temperature, 
+    flh = freezing_level_height(temperature=dat.wet_bulb_temperature, 
                                 height=dat.height_asl,
                                 vert_dim=vert_dim)
     
@@ -1750,6 +1824,12 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
     
+    print('Calculating wet bulb temperature...')
+    dat['wet_bulb_temperature'] = wet_bulb_temperature(pressure=dat.pressure,
+                                                       temperature=dat.temperature,
+                                                       dewpoint=dat.dewpoint,
+                                                       vert_dim=vert_dim)
+    
     print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
     mixed_cape_cin_100, mixed_profile_100, _ = mixed_layer_cape_cin(
         pressure=dat.pressure,
@@ -1779,7 +1859,7 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
     temp_500.name = 'temp_500'
 
     print('Freezing level height...')
-    flh = freezing_level_height(temperature=dat.temperature, 
+    flh = freezing_level_height(temperature=dat.wet_bulb_temperature, 
                                 height=dat.height_asl,
                                 vert_dim=vert_dim)
 
@@ -1822,6 +1902,12 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
         specific_humidity=dat.specific_humidity)
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
+    
+    print('Calculating wet bulb temperature...')
+    dat['wet_bulb_temperature'] = wet_bulb_temperature(pressure=dat.pressure,
+                                                       temperature=dat.temperature,
+                                                       dewpoint=dat.dewpoint,
+                                                       vert_dim=vert_dim)
     
     valid_points = np.logical_and(~np.isnan(dat.dewpoint).any(vert_dim),
                                   ~np.isnan(dat.pressure).any(vert_dim))
@@ -1918,7 +2004,7 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
     temp_500.name = 'temp_500'
 
     print('Freezing level height...')
-    flh = freezing_level_height(temperature=dat.temperature, 
+    flh = freezing_level_height(temperature=dat.wet_bulb_temperature, 
                                 height=dat.height_asl,
                                 vert_dim=vert_dim)
 
@@ -1979,11 +2065,12 @@ def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500
 
 def freezing_level_height(temperature, height, vert_dim='model_level_number'):
     """
-    Calculate the freezing level height.
+    Calculate the freezing level height by looking for 0 degrees in a temperature field.
     
     Arguments:
     
-        - temperature: Temperature at each level [K].
+        - temperature: Temperature at each level [K]. Use wet bulb temperature for 
+                       calculation of melting level height.
         - height: Height of each level [m].
         - vert_dim: Name of vertical dimension.
         

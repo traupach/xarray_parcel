@@ -83,7 +83,7 @@ def lcl_serial(parcel_pressure, parcel_temperature, parcel_dewpoint,
             pres = float(parcel_pressure.sel({x_dim: x, y_dim: y}).values) * units.hPa
             temp = float(parcel_temperature.sel({x_dim: x, y_dim: y}).values) * units.K
             dewpoint = float(parcel_dewpoint.sel({x_dim: x, y_dim: y}).values) * units.K
-            
+
             press_lcl, temp_lcl = metpy.calc.lcl(pressure=pres, temperature=temp, dewpoint=dewpoint)
             
             lcl = xarray.Dataset({'lcl_pressure': press_lcl.m, 
@@ -105,7 +105,7 @@ def lcl_serial(parcel_pressure, parcel_temperature, parcel_dewpoint,
     
 def moist_lapse_serial(pressure, parcel_temperature,
                        parcel_pressure=None, x_dim='longitude', y_dim='latitude', 
-                       vert_dim='model_level_number'):
+                       vert_dim='model_level_number', chunks=None):
     """
     A vectorised wrapper for the metpy serial implementation of moist_lapse, for testing
     purposes. DataArrays are assumed to contain latitude/longitude coordinates.
@@ -116,7 +116,8 @@ def moist_lapse_serial(pressure, parcel_temperature,
         parcel_pressure: Parcel pressure before lifting. 
         x_dim, y_dim: Names of x and y coordinate dimensions.
         vert_dim: The name of the vertical dimension.
-
+        chunks: Not used; kept to align with xarray moist_lapse function.
+        
     Returns: Parcel temperature at each pressure level.
     """
     
@@ -135,10 +136,20 @@ def moist_lapse_serial(pressure, parcel_temperature,
             else:
                 ref_pressure = parcel_pressure.sel({x_dim: x, y_dim: y})
             
-            moist =  moist_lapse_single_point(pressure=pres, parcel_temperature=temp, 
-                                              parcel_pressure=ref_pressure)
+            # For the special case where there is one parcel temperature/pressure provided
+            # per output pressure, assume a 1:1 relationship.
+            if temp.size > 1:
+                moist = np.empty(temp.size)
+                for p in np.arange(temp.size):
+                    moist[p] = moist_lapse_single_point(pressure=pres[p], 
+                                                        parcel_temperature=temp[p], 
+                                                        parcel_pressure=ref_pressure[p])
+            else:
+                moist = moist_lapse_single_point(pressure=pres,
+                                                 parcel_temperature=temp,
+                                                 parcel_pressure=ref_pressure).values
             
-            out.append(xarray.Dataset(data_vars={'temperature': (['model_level_number'], moist.values)},
+            out.append(xarray.Dataset(data_vars={'temperature': (['model_level_number'], moist)},
                                       coords={vert_dim: pressure[vert_dim], x_dim: x, y_dim: y}))
             
             out[-1] = out[-1].expand_dims({x_dim: [out[-1][x_dim]]})
@@ -168,15 +179,19 @@ def moist_lapse_single_point(pressure, parcel_temperature, parcel_pressure=None,
     pres = pressure.values[idx] * units(pressure.attrs['units'])
     temp = parcel_temperature.values * units(parcel_temperature.attrs['units'])
     ref_pressure = parcel_pressure.values * units(parcel_pressure.attrs['units']) 
-    
+            
     moist = metpy.calc.moist_lapse(pressure=pres, temperature=temp, 
-                                   reference_pressure=ref_pressure)
-    
+                                   reference_pressure=ref_pressure).m
+        
     # Assume that nans will only appear at the top (end) of pressure arrays.
-    moist = np.concatenate([moist.m, pressure.values[np.isnan(pressure.values)]])
-    
-    out = xarray.Dataset({'temperature': (vert_dim, moist)},
-                           coords={vert_dim: pressure[vert_dim]})
+    if pressure.size > 1:
+        moist = np.concatenate([moist, pressure.values[np.isnan(pressure.values)]])
+        out = xarray.Dataset({'temperature': (vert_dim, moist)},
+                               coords={vert_dim: pressure[vert_dim]})
+    else:
+        out = xarray.Dataset({'temperature': (vert_dim, [moist])},
+                             coords={vert_dim: [pressure[vert_dim].values]})
+        
     out = out.reset_coords(drop=True).to_array().squeeze()
     out.name = 'temperature'
     return out
@@ -347,6 +362,8 @@ def conv_properties_metpy_serial(dat):
                    int_dewpoint[1].to(units.degC).magnitude * units.delta_degC - 
                    lifted_index.to(units.delta_degC))
             
+            wb = metpy.calc.wet_bulb_temperature(pressure=pres, temperature=temp, dewpoint=dewpoint).to('K')
+            
             out.append(xarray.Dataset(data_vars={'dewpoint': (['model_level_number'], dewpoint.m),
                                                  'mp_pressure': mp_pres.m,
                                                  'mp_temperature': mp_temp.m,
@@ -369,7 +386,8 @@ def conv_properties_metpy_serial(dat):
                                                  'max_cape': max_cape.m,
                                                  'max_cin': max_cin.m,
                                                  'lifted_index': float(lifted_index.m),
-                                                 'dci': float(dci.m)},
+                                                 'dci': float(dci.m),
+                                                 'wet_bulb_temperature': (['model_level_number'], wb.m)},
                                       coords={'model_level_number': dat.pressure.model_level_number,
                                               'latitude': lat, 
                                               'longitude': lon}))
@@ -470,6 +488,14 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
     dci = parcel.deep_convective_index(pressure=dat.pressure, temperature=dat.temperature,
                                        dewpoint=dat.dewpoint, lifted_index=lifted_index.lifted_index)
     
+    # Wet bulb temperature.
+    wb = parcel.wet_bulb_temperature(pressure=dat.pressure, 
+                                     temperature=dat.temperature, 
+                                     dewpoint=dat.dewpoint)
+
+    wb.name = 'wet_bulb_temperature'
+    wb = wb.metpy.dequantify()
+    
     # Rename clashing variables.
     surface_profile = surface_profile.rename({'pressure': 'surf_pres',
                                               'temperature': 'surface_profile',
@@ -488,7 +514,8 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
                         surface_lfc_el,
                         surface_cape_cin,
                         lifted_index,
-                        dci])
+                        dci,
+                        wb])
     
     return out
 
