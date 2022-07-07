@@ -351,18 +351,25 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
         - The wet bulb temperature of each point.
     """
     
-    # For each point, lift up the dry adiabat until we reach the LCL.
-    lcls = lcl(parcel_pressure=pressure, parcel_temperature=temperature, parcel_dewpoint=dewpoint)
+    # For each point, lift up the dry adiabat until we reach the LCL, then
+    # bring the lifted parcel down the moist adiabat to the original pressure
+    # to find the wet-bulb temperature.
     
     if vert_dim in pressure.coords:
-        
         ml = xarray.zeros_like(pressure)
         for v in pressure[vert_dim]:
-            ml.loc[{vert_dim: v}] = moist_lapse(pressure=pressure.sel({vert_dim: v}),
-                                                parcel_temperature=lcls.lcl_temperature.sel({vert_dim: v}),
-                                                parcel_pressure=lcls.lcl_pressure.sel({vert_dim: v}),
+            lcls = lcl(parcel_pressure=pressure.sel({vert_dim: v}), 
+                       parcel_temperature=temperature.sel({vert_dim: v}), 
+                       parcel_dewpoint=dewpoint.sel({vert_dim: v}))
+            
+            ml.loc[{vert_dim: v}] = parcel.moist_lapse(pressure=pressure.sel({vert_dim: v}),
+                                                parcel_temperature=lcls.lcl_temperature,
+                                                parcel_pressure=lcls.lcl_pressure,
                                                 vert_dim=vert_dim)
     else:
+        lcls = lcl(parcel_pressure=pressure, parcel_temperature=temperature, 
+                   parcel_dewpoint=dewpoint)
+        
         ml = moist_lapse(pressure=pressure,
                          parcel_temperature=lcls.lcl_temperature,
                          parcel_pressure=lcls.lcl_pressure,
@@ -1902,7 +1909,7 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
         specific_humidity=dat.specific_humidity)
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
-    
+
     print('Calculating wet bulb temperature...')
     dat['wet_bulb_temperature'] = wet_bulb_temperature(pressure=dat.pressure,
                                                        temperature=dat.temperature,
