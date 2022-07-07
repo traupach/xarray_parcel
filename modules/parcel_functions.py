@@ -362,7 +362,7 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
                        parcel_temperature=temperature.sel({vert_dim: v}), 
                        parcel_dewpoint=dewpoint.sel({vert_dim: v}))
             
-            ml.loc[{vert_dim: v}] = parcel.moist_lapse(pressure=pressure.sel({vert_dim: v}),
+            ml.loc[{vert_dim: v}] = moist_lapse(pressure=pressure.sel({vert_dim: v}),
                                                 parcel_temperature=lcls.lcl_temperature,
                                                 parcel_pressure=lcls.lcl_pressure,
                                                 vert_dim=vert_dim)
