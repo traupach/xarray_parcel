@@ -8,6 +8,7 @@
 import sys
 import metpy
 import xarray
+import time
 import numpy as np
 from metpy.units import units
 import metpy.constants as mpconsts
@@ -358,6 +359,9 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
     if vert_dim in pressure.coords:
         ml = xarray.zeros_like(pressure)
         for v in pressure[vert_dim]:
+            
+            t = time.time()
+            
             lcls = lcl(parcel_pressure=pressure.sel({vert_dim: v}), 
                        parcel_temperature=temperature.sel({vert_dim: v}), 
                        parcel_dewpoint=dewpoint.sel({vert_dim: v}))
@@ -365,7 +369,11 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
             ml.loc[{vert_dim: v}] = moist_lapse(pressure=pressure.sel({vert_dim: v}),
                                                 parcel_temperature=lcls.lcl_temperature,
                                                 parcel_pressure=lcls.lcl_pressure,
-                                                vert_dim=vert_dim)
+                                                vert_dim=vert_dim).compute()
+            del lcls
+            
+            print(f'Level {v} took {time.time() - t} s to process.')
+
     else:
         lcls = lcl(parcel_pressure=pressure, parcel_temperature=temperature, 
                    parcel_dewpoint=dewpoint)
