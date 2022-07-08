@@ -1730,82 +1730,6 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index,
         dci = dci.rename({'dci': prefix+'_dci'})
     
     return dci
-
-def hail_properties(dat, vert_dim='model_level_number'):
-    """
-    Calculate properties required for hail proxy.
-    
-     Arguments:
-    
-       - dat: An xarray Dataset containing pressure, temperature, and 
-              specific humidity, wind data, and height ('height' for all 
-              variables except wind, 'wind_height' for wind levels).
-       - vert_dim: The name of the vertical dimension in the dataset.
-            
-    Returns:
-    
-        - Dataset containing convection properties for each point.
-    """
-    
-    print('Calculating dewpoint...')
-    dat['dewpoint'] = metpy.calc.dewpoint_from_specific_humidity(
-        pressure=dat.pressure,
-        temperature=dat.temperature,
-        specific_humidity=dat.specific_humidity)
-    dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
-    dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
-    
-    print('Calculating wet bulb temperature...')
-    dat['wet_bulb_temperature'] = wet_bulb_temperature(pressure=dat.pressure,
-                                                       temperature=dat.temperature,
-                                                       dewpoint=dat.dewpoint,
-                                                       vert_dim=vert_dim)
-    
-    print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
-    mixed_cape_cin_100, mixed_profile_100, _ = mixed_layer_cape_cin(
-        pressure=dat.pressure,
-        temperature=dat.temperature, 
-        dewpoint=dat.dewpoint,
-        vert_dim=vert_dim,
-        depth=100,
-        prefix='mixed_100')
-    
-    print('Calculating lifted indices...')
-    mixed_li_100 = lifted_index(profile=mixed_profile_100, vert_dim=vert_dim, 
-                                prefix='mixed_100', depth=100,
-                                description=('Lifted index using fully-mixed ' + 
-                                             'lowest 100 hPa parcel.'))
-    
-    print('700-500 hPa lapse rate...')
-    lapse = lapse_rate(pressure=dat.pressure, 
-                       temperature=dat.temperature, 
-                       height=dat.height_asl,
-                       vert_dim=vert_dim,)
-    lapse.name = 'lapse_rate_700_500'
-
-    print('Temperature at 500 hPa...')
-    temp_500 = isobar_temperature(pressure=dat.pressure, 
-                                  temperature=dat.temperature, 
-                                  isobar=500, 
-                                  vert_dim=vert_dim)
-    temp_500.name = 'temp_500'
-    
-    print('Freezing level height...')
-    flh = freezing_level_height(temperature=dat.wet_bulb_temperature, 
-                                height=dat.height_asl,
-                                vert_dim=vert_dim)
-    
-    print('0-6 km vertical wind shear...')
-    shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
-                       surface_wind_v=dat.surface_wind_v, 
-                       wind_u=dat.wind_u, 
-                       wind_v=dat.wind_v, 
-                       height=dat.wind_height_above_surface, 
-                       shear_height=6000, 
-                       vert_dim=vert_dim)
-
-    print('Merging results...')
-    out = xarray.merge([mixed_cape_cin_100, mixed_li_100, lapse, temp_500, flh, shear])
     
 def min_conv_properties(dat, vert_dim='model_level_number'):
     """
@@ -1830,12 +1754,6 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
         specific_humidity=dat.specific_humidity)
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
-    
-    print('Calculating wet bulb temperature...')
-    dat['wet_bulb_temperature'] = wet_bulb_temperature(pressure=dat.pressure,
-                                                       temperature=dat.temperature,
-                                                       dewpoint=dat.dewpoint,
-                                                       vert_dim=vert_dim)
     
     print('Calculating mixed-parcel CAPE and CIN (100 hPa)...')
     mixed_cape_cin_100, mixed_profile_100, _ = mixed_layer_cape_cin(
@@ -1865,10 +1783,12 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
                                   vert_dim=vert_dim)
     temp_500.name = 'temp_500'
 
-    print('Freezing level height...')
-    flh = freezing_level_height(temperature=dat.wet_bulb_temperature, 
-                                height=dat.height_asl,
-                                vert_dim=vert_dim)
+    print('Melting level height...')
+    mlh = melting_level_height(pressure=dat.pressure,
+                               temperature=dat.temperature,
+                               dewpoint=dat.dewpoint,
+                               height=dat.height_asl,
+                               vert_dim=vert_dim)
 
     print('0-6 km vertical wind shear...')
     shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
@@ -1881,7 +1801,7 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
 
     print('Merging results...')
     out = xarray.merge([mixed_cape_cin_100, mixed_li_100, 
-                        lapse, temp_500, flh, shear])
+                        lapse, temp_500, mlh, shear])
     
     return out
      
@@ -1910,12 +1830,6 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
     dat['dewpoint'] = dat.dewpoint.metpy.convert_units('K')
     dat['dewpoint'] = dat.dewpoint.metpy.dequantify()
 
-    print('Calculating wet bulb temperature...')
-    dat['wet_bulb_temperature'] = wet_bulb_temperature(pressure=dat.pressure,
-                                                       temperature=dat.temperature,
-                                                       dewpoint=dat.dewpoint,
-                                                       vert_dim=vert_dim)
-    
     valid_points = np.logical_and(~np.isnan(dat.dewpoint).any(vert_dim),
                                   ~np.isnan(dat.pressure).any(vert_dim))
     valid_points = np.logical_and(valid_points,
@@ -2011,9 +1925,16 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
     temp_500.name = 'temp_500'
 
     print('Freezing level height...')
-    flh = freezing_level_height(temperature=dat.wet_bulb_temperature, 
+    flh = freezing_level_height(temperature=dat.temperature, 
                                 height=dat.height_asl,
                                 vert_dim=vert_dim)
+    
+    print('Melting level height...')
+    mlh = melting_level_height(pressure=dat.pressure,
+                               temperature=dat.temperature,
+                               dewpoint=dat.dewpoint,
+                               height=dat.height_asl,
+                               vert_dim=vert_dim)
 
     print('0-6 km vertical wind shear...')
     shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
@@ -2076,8 +1997,8 @@ def freezing_level_height(temperature, height, vert_dim='model_level_number'):
     
     Arguments:
     
-        - temperature: Temperature at each level [K]. Use wet bulb temperature for 
-                       calculation of melting level height.
+        - temperature: Temperature at each level [K]. Assumed to be dry-bulb temperature;
+                       use melting_level_height to add calculation of wet-bulb temperature.
         - height: Height of each level [m].
         - vert_dim: Name of vertical dimension.
         
@@ -2089,10 +2010,39 @@ def freezing_level_height(temperature, height, vert_dim='model_level_number'):
     _, zeros = xarray.broadcast(temperature, xarray.DataArray(273.15))
     intersects = find_intersections(x=height, a=temperature, b=zeros, dim=vert_dim)
     flh = intersects.all_intersect_x.min(dim='offset_dim')
-    flh.attrs['long_name'] = f'Freezing level height'
+    flh.attrs['long_name'] = f'Freezing-level height'
+    flh.attrs['description'] = f'Height of zero degree dry-bulb temperature isotherm.'
     flh.attrs['units'] = 'm'
     flh.name = 'freezing_level'
     return flh
+
+def melting_level_height(pressure, temperature, dewpoint, height, vert_dim='model_level_number'):
+    """    
+    Calculate the melting level height by looking for 0 degrees in the wet-bulb temperature field.
+    
+    Arguments:
+        - pressure: Pressure level(s) of interest [hPa].
+        - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpoint temperatures [K].
+        - height: Height of each level [m].
+        - vert_dim: The vertical dimension to operate on.
+        
+    Returns:
+    
+        - Melting-level height [m], and the wet bulb temperature of each point.
+    """
+    
+    print('Calculating wet bulb temperature...')
+    wb = wet_bulb_temperature(pressure=pressure, temperature=temperature,
+                              dewpoint=dewpoint, vert_dim=vert_dim)
+    
+
+    mlh = freezing_level_height(temperature=wb, height=height, vert_dim=vert_dim)
+    
+    mlh.attrs['long_name'] = f'Melting-level height'
+    mlh.attrs['description'] = f'Height of zero degree wet-bulb temperature isotherm.'
+    mlh.name = 'melting_level'
+    return mlh, wb
 
 def isobar_temperature(pressure, temperature, isobar, vert_dim='model_level_number'):
     """
