@@ -336,6 +336,31 @@ def round_to(x, to, dp=2):
     """
     return np.round(np.round(x / to) * to, dp)
 
+def wet_bulb_temperature_fast(temperature, dewpoint):
+    """
+    Use a fast method to estimate wet bulb temperature. The method is the "1/3" rule 
+    discussed in Knox et al., 2017 (https://doi.org/10.1175/BAMS-D-16-0246.1). Its 
+    error is shown in their Figure 3.
+    
+    Arguments:
+    
+        - temperature: Temperature at each pressure level [K].
+        - dewpoint: Dewpoint temperatures [K].
+        
+    Returns:
+        
+        - Estimated wet-bulb temperature.
+    """
+    
+    wb = temperature - (1/3)*(temperature-dewpoint)
+    
+    wb.name = 'wet_bulb_temperature'
+    wb.attrs['long_name'] = 'Wet bulb temperature'
+    wb.attrs['description'] = 'Estimated using 1/3 method.'
+    wb.attrs['units'] = 'K'
+        
+    return wb
+
 def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_number'):
     """
     Calculate wet-bulb pressure using "Normand's rule" -- see Knox et al., 2017 
@@ -360,8 +385,6 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
         ml = xarray.zeros_like(pressure)
         for v in pressure[vert_dim]:
             
-            t = time.time()
-            
             lcls = lcl(parcel_pressure=pressure.sel({vert_dim: v}), 
                        parcel_temperature=temperature.sel({vert_dim: v}), 
                        parcel_dewpoint=dewpoint.sel({vert_dim: v}))
@@ -371,8 +394,6 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
                                                 parcel_pressure=lcls.lcl_pressure,
                                                 vert_dim=vert_dim).compute()
             del lcls
-            
-            print(f'Level {v} took {time.time() - t} s to process.')
 
     else:
         lcls = lcl(parcel_pressure=pressure, parcel_temperature=temperature, 
@@ -1938,11 +1959,11 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
                                 vert_dim=vert_dim)
     
     print('Melting level height...')
-    mlh = melting_level_height(pressure=dat.pressure,
-                               temperature=dat.temperature,
-                               dewpoint=dat.dewpoint,
-                               height=dat.height_asl,
-                               vert_dim=vert_dim)
+    mlh, _ = melting_level_height(pressure=dat.pressure,
+                                  temperature=dat.temperature,
+                                  dewpoint=dat.dewpoint,
+                                  height=dat.height_asl,
+                                  vert_dim=vert_dim)
 
     print('0-6 km vertical wind shear...')
     shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
@@ -1958,7 +1979,7 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
                         mixed_cape_cin_100, mixed_cape_cin_50, 
                         mu_li, mixed_li_100, mixed_li_50, 
                         mu_dci, mixed_dci_100, mixed_dci_50, lapse, 
-                        temp_500, flh, shear])
+                        temp_500, flh, mlh, shear])
     
     if not ignore_nans:
         out = out.where(valid_points, other=np.nan)
@@ -2024,7 +2045,7 @@ def freezing_level_height(temperature, height, vert_dim='model_level_number'):
     flh.name = 'freezing_level'
     return flh
 
-def melting_level_height(pressure, temperature, dewpoint, height, vert_dim='model_level_number'):
+def melting_level_height(pressure, temperature, dewpoint, height, fast=True, vert_dim='model_level_number'):
     """    
     Calculate the melting level height by looking for 0 degrees in the wet-bulb temperature field.
     
@@ -2041,8 +2062,11 @@ def melting_level_height(pressure, temperature, dewpoint, height, vert_dim='mode
     """
     
     print('Calculating wet bulb temperature...')
-    wb = wet_bulb_temperature(pressure=pressure, temperature=temperature,
-                              dewpoint=dewpoint, vert_dim=vert_dim)
+    if fast:
+        wb = wet_bulb_temperature_fast(temperature=temperature, dewpoint=dewpoint)
+    else:
+        wb = wet_bulb_temperature(pressure=pressure, temperature=temperature,
+                                  dewpoint=dewpoint, vert_dim=vert_dim)
     
 
     mlh = freezing_level_height(temperature=wb, height=height, vert_dim=vert_dim)

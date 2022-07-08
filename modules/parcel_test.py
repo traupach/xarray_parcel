@@ -363,6 +363,7 @@ def conv_properties_metpy_serial(dat):
                    lifted_index.to(units.delta_degC))
             
             wb = metpy.calc.wet_bulb_temperature(pressure=pres, temperature=temp, dewpoint=dewpoint).to('K')
+            wb_fast = wb
             
             out.append(xarray.Dataset(data_vars={'dewpoint': (['model_level_number'], dewpoint.m),
                                                  'mp_pressure': mp_pres.m,
@@ -387,7 +388,8 @@ def conv_properties_metpy_serial(dat):
                                                  'max_cin': max_cin.m,
                                                  'lifted_index': float(lifted_index.m),
                                                  'dci': float(dci.m),
-                                                 'wet_bulb_temperature': (['model_level_number'], wb.m)},
+                                                 'wet_bulb_temperature': (['model_level_number'], wb.m),
+                                                 'wet_bulb_temperature_fast': (['model_level_number'], wb.m)},
                                       coords={'model_level_number': dat.pressure.model_level_number,
                                               'latitude': lat, 
                                               'longitude': lon}))
@@ -489,13 +491,16 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
                                        dewpoint=dat.dewpoint, lifted_index=lifted_index.lifted_index)
     
     # Wet bulb temperature.
-    wb = parcel.wet_bulb_temperature(pressure=dat.pressure, 
+    wb = parcel.wet_bulb_temperature(pressure=dat.pressure,
                                      temperature=dat.temperature, 
                                      dewpoint=dat.dewpoint)
-
     wb.name = 'wet_bulb_temperature'
-    wb = wb.metpy.dequantify()
     
+    # Fast web-bulb temperature calculation.
+    wb_fast = parcel.wet_bulb_temperature_fast(temperature=dat.temperature,
+                                               dewpoint=dat.dewpoint)
+    wb_fast.name = 'wet_bulb_temperature_fast'
+
     # Rename clashing variables.
     surface_profile = surface_profile.rename({'pressure': 'surf_pres',
                                               'temperature': 'surface_profile',
@@ -515,7 +520,8 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
                         surface_cape_cin,
                         lifted_index,
                         dci,
-                        wb])
+                        wb,
+                        wb_fast])
     
     return out
 
