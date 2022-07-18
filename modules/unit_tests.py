@@ -104,7 +104,6 @@ def run_moist_lapse_tests_looser():
     test_moist_lapse_ref_pres()
     test_moist_lapse_scalar()
     test_moist_lapse_uniform(dp=2)
-    test_wet_bulb_temperature_1d(dp=2)
     print('Moist lapse tests passed.')
 
 def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None, **kwargs):
@@ -128,8 +127,11 @@ def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None, **kwar
     res = vert_array(res, units='K')
     
     if not vert_coords is None:
-        res = res.assign_coords({'model_level_number': vert_coords})
+        if not pressure.shape == ():
+            res = res.assign_coords({'model_level_number': vert_coords})
+        
     res.attrs['long_name'] = 'Moist lapse rate temperature'
+    res = res.squeeze().reset_coords(drop=True)
     return res
 
 def vert_array(x, units):

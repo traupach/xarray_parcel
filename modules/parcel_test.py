@@ -147,16 +147,26 @@ def moist_lapse_serial(pressure, parcel_temperature,
             else:
                 moist = moist_lapse_single_point(pressure=pres,
                                                  parcel_temperature=temp,
-                                                 parcel_pressure=ref_pressure).values
+                                                 parcel_pressure=ref_pressure).data
+                
+            if moist.shape == ():
+                #print([moist])
+                #print(pressure)
+                to_add = xarray.Dataset(data_vars={'temperature': (vert_dim, [moist])},
+                                        coords={vert_dim: [pressure[vert_dim].values], x_dim: x, y_dim: y})
+            else:
+                to_add = xarray.Dataset(data_vars={'temperature': ([vert_dim], moist)},
+                                        coords={vert_dim: pressure[vert_dim], x_dim: x, y_dim: y})
             
-            out.append(xarray.Dataset(data_vars={'temperature': (['model_level_number'], moist)},
-                                      coords={vert_dim: pressure[vert_dim], x_dim: x, y_dim: y}))
-            
+            out.append(to_add)
+
             out[-1] = out[-1].expand_dims({x_dim: [out[-1][x_dim]]})
             out[-1] = out[-1].expand_dims({y_dim: [out[-1][y_dim]]})
             out[-1] = out[-1].reset_coords(drop=True)
            
     out = xarray.merge(out)
+    out = out.squeeze().reset_coords(drop=True)
+    
     out.temperature.attrs['long_name'] = 'Moist lapse rate temperature'
     out.temperature.attrs['units'] = 'K'
     return out.temperature

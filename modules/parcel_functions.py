@@ -528,7 +528,6 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
     # these will be set to nans later.
     valid = np.logical_not(np.isnan(adiabat_idx))
     adiabat_idx = adiabat_idx.where(valid, other=1)
-    
     adiabats = this.moist_adiabats.sel(adiabat=adiabat_idx).squeeze()
     
     # Reset replaced points.
@@ -574,6 +573,7 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     valid_points = np.logical_not(np.logical_or(np.logical_or(np.isnan(parcel_pressure),
                                                               np.isnan(parcel_temperature)),
                                                 np.isnan(parcel_dewpoint)))
+    valid_points = valid_points.reset_coords(drop=True)
     
     parcel_pressure = parcel_pressure.where(valid_points, other=1000)
     parcel_temperature = parcel_temperature.where(valid_points, other=273.15)
