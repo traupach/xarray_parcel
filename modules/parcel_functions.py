@@ -1813,11 +1813,11 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
     temp_500.name = 'temp_500'
 
     print('Melting level height...')
-    mlh = melting_level_height(pressure=dat.pressure,
-                               temperature=dat.temperature,
-                               dewpoint=dat.dewpoint,
-                               height=dat.height_asl,
-                               vert_dim=vert_dim)
+    mlh, _ = melting_level_height(pressure=dat.pressure,
+                                  temperature=dat.temperature,
+                                  dewpoint=dat.dewpoint,
+                                  height=dat.height_asl,
+                                  vert_dim=vert_dim)
 
     print('0-6 km vertical wind shear...')
     shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
