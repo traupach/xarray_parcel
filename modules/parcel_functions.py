@@ -1811,18 +1811,11 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
                                   isobar=500, 
                                   vert_dim=vert_dim)
     temp_500.name = 'temp_500'
-
-    print('Melting level height...')
-    mlh, _ = melting_level_height(pressure=dat.pressure,
-                                  temperature=dat.temperature,
-                                  dewpoint=dat.dewpoint,
-                                  height=dat.height_asl,
-                                  vert_dim=vert_dim)
     
     print('Freezing level height...')
-    flh = melting_level_height(temperature=dat.temperature,
-                               height=dat.height_asl,
-                               vert_dim=vert_dim)
+    flh = freezing_level_height(temperature=dat.temperature,
+                                height=dat.height_asl,
+                                vert_dim=vert_dim)
     
     print('0-6 km vertical wind shear...')
     shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
@@ -1835,7 +1828,7 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
 
     print('Merging results...')
     out = xarray.merge([mixed_cape_cin_100, mixed_li_100, 
-                        lapse, temp_500, mlh, flh, shear])
+                        lapse, temp_500, flh, shear])
     
     return out
      
