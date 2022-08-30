@@ -51,7 +51,10 @@ def compare(x, y, name, tolerance=1e-5):
     
     comp = max_diff < tolerance
     if not comp:
-        name_and_unit = x.attrs['long_name'] + ' [' + x.attrs['units'] + '] (' + name + ')'
+        if 'long_name' in x.attrs:
+            name_and_unit = x.attrs['long_name'] + ' [' + x.attrs['units'] + '] (' + name + ')'
+        else:
+            name_and_unit = name + ' [?]'
         max_diff = str(max_diff) + ' ' + x.attrs["units"]
         max_rel_diff = str(max_rel_diff) + '%'
         print(f'{name_and_unit:65} {max_diff:20} {max_rel_diff:20}')
@@ -585,7 +588,7 @@ def benchmark_cape(dat, points=[2,4,8,16,32,64]):
     sr_times = []
     
     for p in points:
-        pts = dat.isel(latitude=slice(0, p), longitude=slice(0, p)).load()
+        pts = dat.isel(latitude=slice(0, p), longitude=slice(0, p)).chunk(-1).load()
         xr, xr_time = time_function(func=surface_cape_vector, dat=pts)
         sr, sr_time = time_function(func=surface_cape_serial, dat=pts)
     

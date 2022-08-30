@@ -1,6 +1,9 @@
 # Large files
 adiabat_lookups
 
+# Dask stuff
+mydask.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

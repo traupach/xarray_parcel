@@ -78,8 +78,11 @@ def get_layer(dat, depth=100, drop=False, vert_dim='model_level_number',
                                       vert_dim=vert_dim)
         
     # Select the layer.
-    layer = dat.where(dat.pressure <= bottom_pressure, drop=drop)
-    layer = dat.where(dat.pressure >= top_pressure, drop=drop)
+    layer = dat.where(dat.pressure <= bottom_pressure, drop=False)
+    layer = dat.where(dat.pressure >= top_pressure, drop=False)
+    
+    if drop:
+        layer = layer.dropna(dim=vert_dim, how='all')
     
     return layer
 
@@ -146,7 +149,7 @@ def mixed_layer(dat, depth=100, vert_dim='model_level_number'):
     ret = (1. / pressure_depth) * trapz(dat=layer, x='pressure', dim=vert_dim)
     return ret
     
-def trapz(dat, x, dim, mask=None):
+def trapz(dat, x, dim, mask=None, only_positive=False, only_negative=False):
     """ 
     Perform trapezoidal rule integration along an axis, ala numpy.trapz.
     Estimates int y dx.
@@ -158,6 +161,8 @@ def trapz(dat, x, dim, mask=None):
         - dim: The dimension along which to integrate 'y' values.
         - mask: A mask the size of dx/means (ie dim.size-1) for which 
                 areas to include in the integration.
+        - only_positive, only_negative: Include only positive or negative values of the
+                                        area?
 
     Returns:
 
@@ -178,7 +183,15 @@ def trapz(dat, x, dim, mask=None):
         dx = dx.where(mask)
         means = means.where(mask)
     
-    return (dx * means).sum(dim)
+    areas = dx * means
+    
+    assert not (only_positive and only_negative), 'Only negative OR positive regions can be included in trapz.'
+    if only_positive:
+        areas = areas.where(areas > 0)
+    if only_negative:
+        areas = areas.where(areas < 0)
+    
+    return areas.sum(dim)
     
 def bound_pressure(pressure, bound, vert_dim='model_level_number'):
     """
@@ -197,7 +210,8 @@ def bound_pressure(pressure, bound, vert_dim='model_level_number'):
     """
     
     diffs = np.abs(pressure - bound)
-    bounds = pressure.where(diffs == diffs.min(dim=vert_dim), drop=True)
+    bounds = pressure.where(diffs == diffs.min(dim=vert_dim))
+    bounds = bounds.dropna(dim=vert_dim, how='all')
     bounds = bounds.max(dim=vert_dim).squeeze(drop=True)
     return bounds
 
@@ -316,9 +330,9 @@ def moist_adiabat_tables(regenerate=False, cache=True, chunks=None, base_dir='.'
     
     if not regenerate:
         adiabat_lookup = xarray.open_dataset(base_dir + lookup_cache, 
-                                             chunks=chunks).load()
+                                             chunks=chunks).persist()
         adiabats = xarray.open_dataset(base_dir + adiabats_cache, 
-                                       chunks=chunks).load()
+                                       chunks=chunks).persist()
         return adiabat_lookup, adiabats
     
     # Generate lookup tables.
@@ -490,7 +504,7 @@ def moist_adiabat_lookup(pressure_levels=np.round(np.arange(1100, 2,
     return adiabat_lookup, adiabats
 
 def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
-                vert_dim='model_level_number', chunks=300):
+                vert_dim='model_level_number', chunks=100, persist=True):
     """
     Return the temperature of parcels raised moist-adiabatically
     (assuming liquid saturation processes).  Note: What is returned
@@ -506,6 +520,7 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
         - vert_dim: The name of the vertical dimension.
         - chunks: Chunk size to use in non-vertical dimensions if Dask is 
                   being used. Reduce if memory is being filled.
+        - persist: Attempt to persist pressure and adiabat fields?
 
     Returns:
 
@@ -538,10 +553,18 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
         adiabat_idx = adiabat_idx.chunk(chunks)
         adiabats = adiabats.chunk({'pressure': adiabats.pressure.size})
     
+    p = pressure.squeeze()
+    if persist:
+        adiabats = adiabats.persist()
+        adiabat_idx = adiabat_idx.persist()
+        
+        if isinstance(pressure, xarray.DataArray):
+            p = p.persist()
+    
     # Interpolate the adiabat to get the temperature at each requested
     # pressure.
     out = adiabats.temperature.interp(
-        {'pressure': pressure.squeeze()}).reset_coords(drop=True)
+        {'pressure': p}).reset_coords(drop=True)
     out.attrs['long_name'] = 'Moist lapse rate temperature'
     out.attrs['units'] = 'K'
     
@@ -770,7 +793,10 @@ def parcel_profile_with_lcl(pressure, temperature, dewpoint, parcel_pressure,
     
     environment = xarray.Dataset({'temperature': temperature,
                                   'virtual_temperature': virtual_temp,
+                                  'dewpoint': dewpoint,
                                   'pressure': profile.pressure})
+    environment.dewpoint.attrs['long_name'] = 'Environment dewpoint'
+    environment.dewpoint.attrs['units'] = 'K'
     environment.temperature.attrs['long_name'] = 'Environment temperature'
     environment.temperature.attrs['units'] = 'K'
     
@@ -812,7 +838,7 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
     out.temperature.attrs['long_name'] = 'Temperature at LCL'
     out.pressure.attrs['long_name']  = 'Pressure at LCL'
     out.lcl_virtual_temperature.attrs['long name'] = 'Virtual temperature at LCL'
-
+    
     if not environment is None:
         # Interpolate the environment to get the level to insert. 
         # Note: MetPy uses a linear interpolator even on pressure levels.
@@ -830,6 +856,19 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number',
         
         # Set the interpolated pressure.
         interp_level['pressure'] = level.pressure
+        
+        if 'virtual_temperature' in interp_level.keys():
+            interp_level.dewpoint.attrs['units'] = 'K'
+            interp_level.temperature.attrs['units'] = 'K'
+
+            # Recalculate virtual temperature from interpolated dewpoint and temperature.
+            mix_ratio = mixing_ratio(temperature=interp_level.temperature, 
+                                     dewpoint=interp_level.dewpoint,
+                                     pressure=interp_level.pressure)
+            interp_level['virtual_temperature'] = virtual_temperature(temperature=interp_level.temperature,
+                                                                      mixing_ratio=mix_ratio)
+        
+        # Add the new level into the environment.
         new_environment = insert_level(d=environment, level=interp_level, 
                                        coords='pressure', vert_dim=vert_dim)
         
@@ -1054,10 +1093,9 @@ def lfc_el(pressure, parcel_temperature, temperature,
                                      ~np.isnan(temperature))
     top_pressure = pressure == pressure.where(temps_available).min(dim=vert_dim)
     top_prof_temp = parcel_temperature.where(top_pressure).max(dim=vert_dim)
-    top_env_temp = temperature.where(
-        top_pressure).max(dim=vert_dim)
+    top_env_temp = temperature.where(top_pressure).max(dim=vert_dim)
     
-    assert not np.any(np.isnan(top_env_temp)), 'Top temperature is NaN.'
+    assert np.isnan(top_env_temp).broadcast_equals(np.isnan(temperature.max(dim=vert_dim))), 'Top temperature is NaN.'
     
     top_colder = top_prof_temp <= top_env_temp
     el_above_lcl = out.el_pressure < lcl_pressure
@@ -1254,35 +1292,35 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
     areas_around_zeros['x_from'] = np.exp(areas_around_zeros.x_from)
     areas_around_zeros['x_to'] = np.exp(areas_around_zeros.x_to)
      
-    # Integrate between LFC and EL pressure levels to get CAPE.
+    # Integrate positive areas between LFC and EL pressure levels to get CAPE.
     diffs_lfc_to_el = temp_diffs.where(pressure <= lfc_pressure)
     diffs_lfc_to_el = diffs_lfc_to_el.where(pressure >= el_pressure)
     areas_lfc_to_el = areas_around_zeros.where(areas_around_zeros.x <=
                                                lfc_pressure)
     areas_lfc_to_el = areas_lfc_to_el.where(areas_around_zeros.x >= el_pressure)
+    areas_lfc_to_el = areas_lfc_to_el.where(areas_lfc_to_el.area > 0)
     
     cape = mpconsts.Rd.m * trapz(dat=diffs_lfc_to_el, x='log_pressure', 
-                                 dim=vert_dim, mask=trapz_mask)
+                                 dim=vert_dim, mask=trapz_mask, only_positive=True)
     cape = cape.reset_coords().temp_diff
     cape = cape + (mpconsts.Rd.m * areas_lfc_to_el.area.sum(dim=vert_dim))
     cape.name = 'cape'
     cape.attrs['long_name'] = 'Convective available potential energy'
     cape.attrs['units'] = 'J kg$^{-1}$'
 
-    # Integrate between surface and LFC to get CIN.
+    # Integrate negative between surface and LFC to get CIN.
     temp_diffs_surf_to_lfc = temp_diffs.where(pressure >= lfc_pressure)
     areas_surf_to_lfc = areas_around_zeros.where(areas_around_zeros.x >=
                                                  lfc_pressure)
+    areas_surf_to_lfc = areas_surf_to_lfc.where(areas_surf_to_lfc.area < 0)
+    
     cin = mpconsts.Rd.m * trapz(dat=temp_diffs_surf_to_lfc, x='log_pressure', 
-                                dim=vert_dim, mask=trapz_mask)
+                                dim=vert_dim, mask=trapz_mask, only_negative=True)
     cin = cin.reset_coords().temp_diff
     cin = cin + (mpconsts.Rd.m * areas_surf_to_lfc.area.sum(dim=vert_dim))
     cin.name = 'cin'
     cin.attrs['long_name'] = 'Convective inhibition'
     cin.attrs['units'] = 'J kg$^{-1}$'
-
-    # Set any positive values for CIN to 0.
-    cin = cin.where(cin <= 0, other=0)
     
     res = xarray.merge([cape, cin])
     res.attrs = []
@@ -1445,7 +1483,8 @@ def from_most_unstable_parcel(pressure, temperature, dewpoint,
                                           vert_dim=vert_dim)
         
     # Subset to layers at or above the most unstable parcels.
-    dat = dat.where(pressure <= unstable_layer.pressure, drop=True)
+    dat = dat.where(pressure <= unstable_layer.pressure)
+    dat = dat.dropna(dim=vert_dim, how='all')
     dat = shift_out_nans(x=dat, name='pressure', dim=vert_dim)
     
     return dat.pressure, dat.temperature, dat.dewpoint, unstable_layer
@@ -1528,7 +1567,7 @@ def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number',
     assert dewpoint.name == 'dewpoint', 'Dewpoint requires name dewpoint.'
         
     dat = xarray.merge([pressure, temperature, dewpoint])
-    dat = dat.where(pressure < (pressure.max(dim=vert_dim) - depth), drop=True)
+    dat = dat.where(pressure < (pressure.max(dim=vert_dim) - depth))
     dat = shift_out_nans(x=dat, name='pressure', dim=vert_dim)
     
     # Add the mixed layer to the bottom of the profiles.
@@ -1817,6 +1856,13 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
                                 height=dat.height_asl,
                                 vert_dim=vert_dim)
     
+    print('Melting level height...')
+    mlh, _ = melting_level_height(pressure=dat.pressure,
+                                  temperature=dat.temperature,
+                                  dewpoint=dat.dewpoint,
+                                  height=dat.height_asl,
+                                  vert_dim=vert_dim)
+    
     print('0-6 km vertical wind shear...')
     shear = wind_shear(surface_wind_u=dat.surface_wind_u, 
                        surface_wind_v=dat.surface_wind_v, 
@@ -1828,7 +1874,7 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
 
     print('Merging results...')
     out = xarray.merge([mixed_cape_cin_100, mixed_li_100, 
-                        lapse, temp_500, flh, shear])
+                        lapse, temp_500, flh, mlh, shear])
     
     return out
      
