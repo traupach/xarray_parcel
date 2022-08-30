@@ -211,7 +211,6 @@ def bound_pressure(pressure, bound, vert_dim='model_level_number'):
     
     diffs = np.abs(pressure - bound)
     bounds = pressure.where(diffs == diffs.min(dim=vert_dim))
-    bounds = bounds.dropna(dim=vert_dim, how='all')
     bounds = bounds.max(dim=vert_dim).squeeze(drop=True)
     return bounds
 
@@ -1568,6 +1567,7 @@ def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number',
         
     dat = xarray.merge([pressure, temperature, dewpoint])
     dat = dat.where(pressure < (pressure.max(dim=vert_dim) - depth))
+    dat = dat.dropna(dim=vert_dim, how='all')
     dat = shift_out_nans(x=dat, name='pressure', dim=vert_dim)
     
     # Add the mixed layer to the bottom of the profiles.
