@@ -30,6 +30,7 @@ def time_function(func, dat, **kwargs):
     
     start = time.perf_counter()
     ret = func(dat, **kwargs)
+    ret = ret.load()
     end = time.perf_counter()
     return ret, end-start
 
@@ -270,6 +271,7 @@ def surface_cape_vector(dat):
     out, _ = parcel.surface_based_cape_cin(pressure=dat.pressure,
                                            temperature=dat.temperature, 
                                            dewpoint=dewpoint)
+    out = out.load()
     
     return(out)
 
@@ -571,7 +573,7 @@ def compare_results(set1, set2):
     for variable in set2.keys():
         compare(set1[variable], set2[variable], name=variable)
 
-def benchmark_cape(dat, points=[2,4,8,16,32,64]):
+def benchmark_cape(dat, points=[2,4,8,16,32,64,101]):
     """
     Calculate CAPE and CIN using MetPy and xarray functions for a variety of numbers of 
     points and return processing times.
@@ -585,19 +587,24 @@ def benchmark_cape(dat, points=[2,4,8,16,32,64]):
     
     num_points = []
     xr_times = []
+    xr_load_times = []
     sr_times = []
     
     for p in points:
-        pts = dat.isel(latitude=slice(0, p), longitude=slice(0, p)).chunk(-1).load()
-        xr, xr_time = time_function(func=surface_cape_vector, dat=pts)
-        sr, sr_time = time_function(func=surface_cape_serial, dat=pts)
+        pts = dat.isel(latitude=slice(0, p), longitude=slice(0, p)).chunk({'latitude': 25, 'longitude': 25, 'model_level_number': -1})
+        xr, xr_time = time_function(func=surface_cape_vector, dat=pts.copy().persist())
+        xr_load, xr_load_time = time_function(func=surface_cape_vector, dat=pts.copy().load())
+        sr, sr_time = time_function(func=surface_cape_serial, dat=pts.copy().load())
     
         num_points.append(p*p)
         xr_times.append(xr_time)
+        xr_load_times.append(xr_load_time)
         sr_times.append(sr_time)
     
-    res = xarray.Dataset({'vector_time': ('pts', xr_times),
-                          'serial_time': ('pts', sr_times)},
-                         {'pts': num_points})
+    res = xarray.Dataset({
+        'xr_persist': ('pts', xr_times),
+        'xr_load': ('pts', xr_load_times),
+        'serial': ('pts', sr_times)},
+        {'pts': num_points})
     return res
     

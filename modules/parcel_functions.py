@@ -42,8 +42,7 @@ def lookup_tables_loaded():
     assert this.moist_adiabat_lookup is not None, 'Call load_moist_adiabat_lookups first.'
     assert this.moist_adiabats is not None, 'Call load_moist_adiabat_lookups first.'
         
-def get_layer(dat, depth=100, drop=False, vert_dim='model_level_number',
-              interpolate=True):
+def get_layer(dat, depth=100, vert_dim='model_level_number', interpolate=True):
     """
     Return an atmospheric layer from the surface with a given depth.
 
@@ -51,7 +50,6 @@ def get_layer(dat, depth=100, drop=False, vert_dim='model_level_number',
 
       - dat: DataArray, must contain pressure.
       - depth: Depth above the bottom of the layer to mix [hPa].
-      - drop: Drop unselected elements?
       - vert_dim: Vertical dimension name.
       - interpolate: Interpolate the bottom/top layers?
 
@@ -78,16 +76,12 @@ def get_layer(dat, depth=100, drop=False, vert_dim='model_level_number',
                                       vert_dim=vert_dim)
         
     # Select the layer.
-    layer = dat.where(dat.pressure <= bottom_pressure, drop=False)
-    layer = dat.where(dat.pressure >= top_pressure, drop=False)
-    
-    if drop:
-        layer = layer.dropna(dim=vert_dim, how='all')
+    layer = dat.where(dat.pressure <= bottom_pressure)
+    layer = dat.where(dat.pressure >= top_pressure)
     
     return layer
 
-def most_unstable_parcel(dat, depth=300, drop=False,
-                         vert_dim='model_level_number'):
+def most_unstable_parcel(dat, depth=300, vert_dim='model_level_number'):
     """
     Return the most unstable parcel with an atmospheric layer from
     with the requested bottom and depth. No interpolation is
@@ -105,11 +99,9 @@ def most_unstable_parcel(dat, depth=300, drop=False,
     Returns:
 
         - xarray DataArray with pressure and data variables for the layer.
-
     """
 
-    layer = get_layer(dat=dat, depth=depth, drop=drop, vert_dim=vert_dim,
-                      interpolate=False)
+    layer = get_layer(dat=dat, depth=depth, vert_dim=vert_dim, interpolate=False)
     eq = metpy.calc.equivalent_potential_temperature(
         pressure=layer.pressure,
         temperature=layer.temperature,
@@ -141,7 +133,7 @@ def mixed_layer(dat, depth=100, vert_dim='model_level_number'):
         - xarray with mixed values of each data variable.
     """
     
-    layer = get_layer(dat=dat, depth=depth, drop=True, vert_dim=vert_dim)
+    layer = get_layer(dat=dat, depth=depth, vert_dim=vert_dim)
     
     pressure_depth = np.abs(layer.pressure.min(vert_dim) - 
                             layer.pressure.max(vert_dim))
@@ -601,23 +593,40 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     parcel_temperature = parcel_temperature.where(valid_points, other=273.15)
     parcel_dewpoint = parcel_dewpoint.where(valid_points, other=273.15)
     
-    press_lcl, temp_lcl = metpy.calc.lcl(pressure=parcel_pressure, 
-                                         temperature=parcel_temperature, 
-                                         dewpoint=parcel_dewpoint)
+    parcel_pressure.name = 'parcel_pressure'
+    parcel_temperature.name = 'parcel_temperature'
+    parcel_dewpoint.name = 'parcel_dewpoint'
+    obj = xarray.merge([parcel_pressure, parcel_temperature, parcel_dewpoint])
     
-    # Calculate virtual temperature at LCL (at LCL, temperature == dewpoint).
-    lcl_mixing_ratio = mixing_ratio(temperature=temp_lcl, 
-                                    dewpoint=temp_lcl,
-                                    pressure=press_lcl)
-    lcl_virt_temp = virtual_temperature(temperature=temp_lcl,
-                                        mixing_ratio=lcl_mixing_ratio)
+    # Define a block-able function for metpy's LCL.
+    def lcl_block(obj):
+        press_lcl, temp_lcl = metpy.calc.lcl(pressure=obj.parcel_pressure,
+                                             temperature=obj.parcel_temperature,
+                                             dewpoint=obj.parcel_dewpoint)
+
+        # Calculate virtual temperature at LCL (at LCL, temperature == dewpoint).
+        lcl_mixing_ratio = mixing_ratio(temperature=temp_lcl, 
+                                        dewpoint=temp_lcl,
+                                        pressure=press_lcl)
+        lcl_virt_temp = virtual_temperature(temperature=temp_lcl,
+                                            mixing_ratio=lcl_mixing_ratio)
+        
+        newdims = [x for x in obj.dims][::-1]
+        
+        print(press_lcl.shape)
+        print(lcl_mixing_ratio.shape)
+        print(lcl_virt_temp.shape)
+        
+        res =  xarray.Dataset({'lcl_pressure': (newdims, press_lcl.m),
+                               'lcl_temperature': (newdims, temp_lcl.m),
+                               'lcl_virtual_temperature': (newdims, lcl_virt_temp.m)},
+                               coords=obj.coords)
+        
+        print(res)
+        return(res)
     
-    out = xarray.Dataset({'lcl_pressure': (parcel_temperature.dims,
-                                           press_lcl.m),
-                          'lcl_temperature': (parcel_temperature.dims,
-                                              temp_lcl.m),
-                          'lcl_virtual_temperature': (parcel_temperature.dims,
-                                                      lcl_virt_temp.m)})
+    # Apply the LCL function one block (chunk) at a time, in parallel.
+    out = xarray.map_blocks(lcl_block, obj)
     
     out.lcl_pressure.attrs['long_name'] = ('Lifting condensation ' +
                                            'level pressure')
@@ -670,7 +679,7 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
 
         - pressure: Pressure levels to calculate on [hPa].
         - parcel_pressure: Pressure of the parcel [hPa].
-        - parcel_temperature: Temperature of the parcel [K].
+        - parcel_temperature: Temperature of the padrcel [K].
         - parcel_dewpoint: Dewpoint of the parcel [K].
        
     Returns:
@@ -1536,7 +1545,7 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint,
     return res, profile, unstable_layer
         
 def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number', 
-              depth=100):
+              depth=100, load=True):
     """
     Fully mix the lowest x hPa in vertical profiles.
     
@@ -1548,6 +1557,7 @@ def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number',
         - vert_dim: The vertical dimension.
         - depth: The depth above the surface (lowest-level pressure)
           to mix [hPa].
+        - load: Load resulting parcel into memory?
     
     Returns:
     
@@ -1575,6 +1585,9 @@ def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number',
     pressure = xarray.concat([mp.pressure, dat.pressure], dim=vert_dim)
     temperature = xarray.concat([mp.temperature, dat.temperature], dim=vert_dim)
     dewpoint = xarray.concat([mp.dewpoint, dat.dewpoint], dim=vert_dim)
+    
+    if load:
+        mp = mp.load()
     
     return pressure, temperature, dewpoint, mp
     
