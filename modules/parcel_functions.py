@@ -6,18 +6,35 @@
 # Author: Tim Raupach <t.raupach@unsw.edu.au>
 
 import sys
+import time
 import metpy
 import xarray
-import time
+import metpy.calc
 import numpy as np
 from metpy.units import units
 import metpy.constants as mpconsts
-import metpy.calc
+from numba import float64, guvectorize
 
 # Class global variables to contain moist adiabat lookup tables.
 this = sys.modules[__name__]
 this.moist_adiabat_lookup = None
 this.moist_adiabats = None
+
+@guvectorize(
+    "(float64[:], float64[:], float64[:], float64[:])",
+    "(m), (n), (n) -> (m)",
+    nopython=True,
+)
+def interp1d_numba(at, xp, fp, out):
+    # Perform simple 1d interpolation with numpy and no data checking.
+    #
+    # Arguments:
+    #    at: coordinates at which to find interpolated values.
+    #    xp: known coordinates. Must be monotonically increasing.
+    #    fp: values at known coordinates.
+    #
+    # Returns: interpolated values of fp at 'at' points.
+    out[:] = np.interp(at, xp, fp)
 
 def load_moist_adiabat_lookups(**kwargs):
     """
@@ -27,13 +44,14 @@ def load_moist_adiabat_lookups(**kwargs):
     
     Arguments:
     
+        - Chunks: Chunk definition to use. Default for 28 processors.
         - **kwargs: Any arguments to moist_adiabat_tables().
     """
     
     this.moist_adiabat_lookup, this.moist_adiabats = moist_adiabat_tables(
         regenerate=False, cache=True, **kwargs)
-    this.moist_adiabat_lookup = this.moist_adiabat_lookup.persist()
-    this.moist_adiabats = this.moist_adiabats.persist()
+    this.moist_adiabat_lookup = this.moist_adiabat_lookup.load()
+    this.moist_adiabats = this.moist_adiabats.sortby('pressure').load()
         
 def lookup_tables_loaded():
     """
@@ -378,9 +396,16 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
         - vert_dim: The vertical dimension to operate on.
         
     Returns:
-    
         - The wet bulb temperature of each point.
     """
+    
+    if pressure.chunks is not None:
+        print('WARNING: wet_bulb_temperatuer function uses a for loop that ' +
+              'performs badly when dask is used. Loading data into memory. ' +
+              'If an approximation will do, use wet_bulb_temperature_fast.')
+        pressure = pressure.load()
+        temperature = temperature.load()
+        dewpoint = dewpoint.load()
     
     # For each point, lift up the dry adiabat until we reach the LCL, then
     # bring the lifted parcel down the moist adiabat to the original pressure
@@ -394,10 +419,11 @@ def wet_bulb_temperature(pressure, temperature, dewpoint, vert_dim='model_level_
                        parcel_temperature=temperature.sel({vert_dim: v}), 
                        parcel_dewpoint=dewpoint.sel({vert_dim: v}))
 
-            ml.loc[{vert_dim: v}] = moist_lapse(pressure=pressure.sel({vert_dim: v}),
+            p = pressure.sel({vert_dim: v}).expand_dims(vert_dim)
+            ml.loc[{vert_dim: v}] = moist_lapse(pressure=p,
                                                 parcel_temperature=lcls.lcl_temperature,
                                                 parcel_pressure=lcls.lcl_pressure,
-                                                vert_dim=vert_dim).compute()
+                                                vert_dim=vert_dim).compute().squeeze().reset_coords(drop=True)
             del lcls
 
     else:
@@ -495,7 +521,7 @@ def moist_adiabat_lookup(pressure_levels=np.round(np.arange(1100, 2,
     return adiabat_lookup, adiabats
 
 def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
-                vert_dim='model_level_number', chunks=100, persist=True):
+                vert_dim='model_level_number', persist=True):
     """
     Return the temperature of parcels raised moist-adiabatically
     (assuming liquid saturation processes).  Note: What is returned
@@ -509,10 +535,8 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
         - parcel_pressure: Parcel pressure before lifting. Defaults to lowest 
                            vertical level.
         - vert_dim: The name of the vertical dimension.
-        - chunks: Chunk size to use in non-vertical dimensions if Dask is 
-                  being used. Reduce if memory is being filled.
-        - persist: Attempt to persist pressure and adiabat fields?
-
+        - persist: Persist adiabat lookups to memory for speed improvements at cost of RAM?
+        
     Returns:
 
         - Temperature of each parcel lifted to each pressure level.
@@ -527,42 +551,56 @@ def moist_lapse(pressure, parcel_temperature, parcel_pressure=None,
     # the parcel pressure and temperature.
     adiabat_idx = this.moist_adiabat_lookup.sel({'pressure': parcel_pressure,
                                                  'temperature': parcel_temperature},
-                                                method='nearest')
+                                                 method='nearest')
     adiabat_idx = adiabat_idx.adiabat.reset_coords(drop=True)
     
+    # Chunks from DataArrays are not named; whereas from DataSets they are. So 
+    # convert to DataSet just to get chunk information.
+    chunks = xarray.Dataset({'pressure': pressure}).chunks
+    if isinstance(pressure, xarray.DataArray) and pressure.chunks is not None:
+        adiabat_idx = adiabat_idx.chunk({x: chunks[x] for x in adiabat_idx.dims})
+        pressure = pressure.chunk({vert_dim: -1})
+        if persist:
+            adiabat_idx = adiabat_idx.persist()
+        
     # Replace points without an adiabat with an index (1) so the lookup works;
     # these will be set to nans later.
     valid = np.logical_not(np.isnan(adiabat_idx))
     adiabat_idx = adiabat_idx.where(valid, other=1)
-    adiabats = this.moist_adiabats.sel(adiabat=adiabat_idx).squeeze()
+    adiabats = this.moist_adiabats.sel(adiabat=adiabat_idx)
+    adiabats = adiabats.squeeze().reset_coords(drop=True)
     
+    if isinstance(pressure, xarray.DataArray) and pressure.chunks is not None:
+        adiabats = adiabats.chunk({x: chunks[x] for x in [y for y in adiabats.dims if y in chunks]})
+        adiabats = adiabats.chunk({'pressure': -1})
+        if persist:
+            adiabats = adiabats.persist()
+        
     # Reset replaced points.
     adiabats = adiabats.where(valid, other=np.nan)
-
-    if isinstance(pressure, xarray.DataArray) and pressure.chunks is not None:
-        adiabats = adiabats.chunk(chunks)
-        adiabat_idx = adiabat_idx.chunk(chunks)
-        adiabats = adiabats.chunk({'pressure': adiabats.pressure.size})
     
-    p = pressure.squeeze()
-    if persist:
-        adiabats = adiabats.persist()
-        adiabat_idx = adiabat_idx.persist()
+    assert np.all(adiabats.pressure.diff('pressure') >= 0), 'Adiabats must be sorted by increasing pressure.'
+    out = xarray.apply_ufunc(
+        interp1d_numba,
+        pressure,              # Interpolate for pressures at each level.
+        adiabats.pressure,     # Adiabat pressures to interpolate.
+        adiabats.temperature,  # Adiabat temperatures to interpolate.
+        input_core_dims=[[vert_dim], ['pressure'], ['pressure']],
+        output_core_dims=[[vert_dim]],
+        dask='parallelized')
         
-        if isinstance(pressure, xarray.DataArray):
-            p = p.persist()
-    
-    # Interpolate the adiabat to get the temperature at each requested
-    # pressure.
-    out = adiabats.temperature.interp(
-        {'pressure': p}).reset_coords(drop=True)
+    # Add metadata.
     out.attrs['long_name'] = 'Moist lapse rate temperature'
     out.attrs['units'] = 'K'
     
+    # Don't allow extrapolation.
+    out = out.where(pressure >= adiabats.pressure.min().values)
+    out = out.where(pressure <= adiabats.pressure.max().values)
+    
     # Don't return values where inputs are nan.
-    out = out.where(np.logical_not(np.isnan(parcel_temperature)))
-    out = out.where(np.logical_not(np.isnan(parcel_pressure)))
-    out = out.where(np.logical_not(np.isnan(pressure)))
+    out = out.where(~np.isnan(parcel_temperature))
+    out = out.where(~np.isnan(parcel_pressure))
+    out = out.where(~np.isnan(pressure))
     
     return out
 
@@ -597,37 +635,35 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     parcel_temperature.name = 'parcel_temperature'
     parcel_dewpoint.name = 'parcel_dewpoint'
     obj = xarray.merge([parcel_pressure, parcel_temperature, parcel_dewpoint])
-    
-    # Define a block-able function for metpy's LCL.
+    obj = obj.reset_coords(drop=True)
+
+    # Define a block-able function for metpy's LCL. 
     def lcl_block(obj):
         press_lcl, temp_lcl = metpy.calc.lcl(pressure=obj.parcel_pressure,
                                              temperature=obj.parcel_temperature,
                                              dewpoint=obj.parcel_dewpoint)
 
+        assert np.all(obj.parcel_pressure.dims == obj.parcel_temperature.dims)
+        assert np.all(obj.parcel_pressure.dims == obj.parcel_dewpoint.dims)
+        dims = obj.parcel_pressure.dims
+        
         # Calculate virtual temperature at LCL (at LCL, temperature == dewpoint).
         lcl_mixing_ratio = mixing_ratio(temperature=temp_lcl, 
                                         dewpoint=temp_lcl,
                                         pressure=press_lcl)
         lcl_virt_temp = virtual_temperature(temperature=temp_lcl,
                                             mixing_ratio=lcl_mixing_ratio)
-        
-        newdims = [x for x in obj.dims][::-1]
-        
-        print(press_lcl.shape)
-        print(lcl_mixing_ratio.shape)
-        print(lcl_virt_temp.shape)
-        
-        res =  xarray.Dataset({'lcl_pressure': (newdims, press_lcl.m),
-                               'lcl_temperature': (newdims, temp_lcl.m),
-                               'lcl_virtual_temperature': (newdims, lcl_virt_temp.m)},
-                               coords=obj.coords)
-        
-        print(res)
+
+        res =  xarray.Dataset({'lcl_pressure': (dims, press_lcl.m),
+                               'lcl_temperature': (dims, temp_lcl.m),
+                               'lcl_virtual_temperature': (dims, lcl_virt_temp.m)},
+                               coords={x: obj.coords[x].values for x in dims})
+
         return(res)
-    
+
     # Apply the LCL function one block (chunk) at a time, in parallel.
-    out = xarray.map_blocks(lcl_block, obj)
-    
+    out = obj.map_blocks(lcl_block)
+
     out.lcl_pressure.attrs['long_name'] = ('Lifting condensation ' +
                                            'level pressure')
     out.lcl_pressure.attrs['units'] = 'hPa'
@@ -671,7 +707,8 @@ def mixing_ratio(temperature, dewpoint, pressure):
         
     return res
 
-def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoint):
+def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoint, 
+                   vert_dim='model_level_number'):
     """
     Calculate temperatures of a lifted parcel.
     
@@ -681,6 +718,7 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
         - parcel_pressure: Pressure of the parcel [hPa].
         - parcel_temperature: Temperature of the padrcel [K].
         - parcel_dewpoint: Dewpoint of the parcel [K].
+        - vert_dim: The name of the vertical dimension.
        
     Returns:
 
@@ -701,7 +739,8 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
     # point to the LCL.
     below_lcl = dry_lapse(pressure=pressure, 
                           parcel_temperature=parcel_temperature, 
-                          parcel_pressure=parcel_pressure)
+                          parcel_pressure=parcel_pressure,
+                          vert_dim=vert_dim)
     
     # Along the dry adiabat the parcel's mixing ratio remains constant.
     parcel_mixing_ratio = mixing_ratio(temperature=parcel_temperature*units.K,
@@ -712,7 +751,8 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
     # temp/pressure.
     above_lcl = moist_lapse(pressure=pressure, 
                             parcel_temperature=out.lcl_temperature,
-                            parcel_pressure=out.lcl_pressure)
+                            parcel_pressure=out.lcl_pressure,
+                            vert_dim=vert_dim)
     
     # Above the LCL, the mixing ratio is the saturation mixing ratio.
     mixing_ratios = metpy.calc.saturation_mixing_ratio(
@@ -790,7 +830,8 @@ def parcel_profile_with_lcl(pressure, temperature, dewpoint, parcel_pressure,
     profile = parcel_profile(pressure=pressure,
                              parcel_pressure=parcel_pressure,
                              parcel_temperature=parcel_temperature,
-                             parcel_dewpoint=parcel_dewpoint)
+                             parcel_dewpoint=parcel_dewpoint,
+                             vert_dim=vert_dim)
     
     # Calculate environmental virtual temperatures.
     mix_ratio = mixing_ratio(temperature=temperature, 
@@ -1246,7 +1287,8 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
     return areas, mask
    
 def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
-                  parcel_temperature, vert_dim='model_level_number', **kwargs):
+                  parcel_temperature, vert_dim='model_level_number',
+                  pos_cape_neg_cin=True, **kwargs):
     """
     Calculate CAPE and CIN.
 
@@ -1268,6 +1310,9 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
         - el_pressure: Pressure of equilibrium level [hPa].
         - parcel_temperature: The temperature of the lifted parcel.
         - vert_dim: The vertical dimension.
+        - pos_cape_neg_cin: Force CAPE to be positive and CIN to be negative by
+                            counting only positive (negative) buoyance for 
+                            CAPE (CIN).
 
     Returns:
 
@@ -1306,10 +1351,13 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
     areas_lfc_to_el = areas_around_zeros.where(areas_around_zeros.x <=
                                                lfc_pressure)
     areas_lfc_to_el = areas_lfc_to_el.where(areas_around_zeros.x >= el_pressure)
-    areas_lfc_to_el = areas_lfc_to_el.where(areas_lfc_to_el.area > 0)
+    
+    if pos_cape_neg_cin:
+        areas_lfc_to_el = areas_lfc_to_el.where(areas_lfc_to_el.area > 0)
     
     cape = mpconsts.Rd.m * trapz(dat=diffs_lfc_to_el, x='log_pressure', 
-                                 dim=vert_dim, mask=trapz_mask, only_positive=True)
+                                 dim=vert_dim, mask=trapz_mask, 
+                                 only_positive=pos_cape_neg_cin)
     cape = cape.reset_coords().temp_diff
     cape = cape + (mpconsts.Rd.m * areas_lfc_to_el.area.sum(dim=vert_dim))
     cape.name = 'cape'
@@ -1320,10 +1368,13 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
     temp_diffs_surf_to_lfc = temp_diffs.where(pressure >= lfc_pressure)
     areas_surf_to_lfc = areas_around_zeros.where(areas_around_zeros.x >=
                                                  lfc_pressure)
-    areas_surf_to_lfc = areas_surf_to_lfc.where(areas_surf_to_lfc.area < 0)
+    
+    if pos_cape_neg_cin:
+        areas_surf_to_lfc = areas_surf_to_lfc.where(areas_surf_to_lfc.area < 0)
     
     cin = mpconsts.Rd.m * trapz(dat=temp_diffs_surf_to_lfc, x='log_pressure', 
-                                dim=vert_dim, mask=trapz_mask, only_negative=True)
+                                dim=vert_dim, mask=trapz_mask, 
+                                only_negative=pos_cape_neg_cin)
     cin = cin.reset_coords().temp_diff
     cin = cin + (mpconsts.Rd.m * areas_surf_to_lfc.area.sum(dim=vert_dim))
     cin.name = 'cin'
