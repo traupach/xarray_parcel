@@ -126,8 +126,10 @@ def most_unstable_parcel(dat, depth=300, vert_dim='model_level_number'):
         dewpoint=layer.dewpoint).metpy.dequantify()
     max_eq = eq.max(dim=vert_dim)
     pres = layer.where(eq == max_eq).pressure.max(dim=vert_dim)
-    assert np.all(layer.pressure.where(layer.pressure == pres).count(
-        dim=vert_dim) == 1), 'Vertical pressures are not unique'
+    
+    counts = layer.pressure.where(layer.pressure == pres).count(dim=vert_dim).where(~np.isnan(pres))
+    assert counts.max() == counts.min() == 1, 'Vertical pressures are not unique'
+    
     most_unstable = layer.where(layer.pressure == pres).max(dim=vert_dim,
                                                             keep_attrs=True)
     return most_unstable
@@ -1288,7 +1290,7 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
    
 def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
                   parcel_temperature, vert_dim='model_level_number',
-                  pos_cape_neg_cin=True, **kwargs):
+                  pos_cape_neg_cin=True, post_zero_cin=False, **kwargs):
     """
     Calculate CAPE and CIN.
 
@@ -1313,6 +1315,7 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
         - pos_cape_neg_cin: Force CAPE to be positive and CIN to be negative by
                             counting only positive (negative) buoyance for 
                             CAPE (CIN).
+        - post_zero_cin: Reset any positive CIN values to zero?
 
     Returns:
 
@@ -1380,6 +1383,9 @@ def cape_cin_base(pressure, temperature, lfc_pressure, el_pressure,
     cin.name = 'cin'
     cin.attrs['long_name'] = 'Convective inhibition'
     cin.attrs['units'] = 'J kg$^{-1}$'
+
+    if post_zero_cin:
+        cin = cin.where(cin <= 0, other=0)
     
     res = xarray.merge([cape, cin])
     res.attrs = []
@@ -1670,7 +1676,7 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint, vert_dim='model_level_
                                                     dewpoint=dewpoint,
                                                     vert_dim=vert_dim,
                                                     depth=depth)
-    
+
     res, profile = cape_cin(pressure=pressure,
                             temperature=temperature,
                             dewpoint=dewpoint,

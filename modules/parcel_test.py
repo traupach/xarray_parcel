@@ -413,7 +413,7 @@ def conv_properties_metpy_serial(dat):
     out = xarray.merge(out)   
     return(out)
 
-def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, lcl_interp='log', pos_cape_neg_cin=False):
+def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, lcl_interp='log', pos_cape_neg_cin=False, post_zero_cin=False):
     """
     Calculate convective properties for a set of points, using vectorised code.
     
@@ -423,10 +423,11 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
        vert_dim: Name of the vertical dimension in dat.
        virt_temp: Use virtual temperature correction?
        pos_cape_neg_cin: Force CAPE (CIN) to count only positive (negative) buoyancy?
+       post_zero_cin: Reset positive CIN to zero after calculations, as in MetPy?
        
     Returns: Dataset containing all tested convective properties.
     """
-      
+    
     # Calculate dewpoints.
     dat['dewpoint'] = metpy.calc.dewpoint_from_specific_humidity(pressure=dat.pressure,
                                                                  temperature=dat.temperature,
@@ -459,7 +460,8 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
                                                                    virtual_temperature_correction=virt_temp,
                                                                    prefix='mixed',
                                                                    lcl_interp=lcl_interp,
-                                                                   pos_cape_neg_cin=pos_cape_neg_cin)
+                                                                   pos_cape_neg_cin=pos_cape_neg_cin,
+                                                                   post_zero_cin=post_zero_cin)
     
     # CAPE and CIN for most unstable parcel in lowest 300 hPa.
     max_cape_cin, _, _= parcel.most_unstable_cape_cin(pressure=dat.pressure,
@@ -469,7 +471,8 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
                                                       virtual_temperature_correction=virt_temp,
                                                       prefix='max',
                                                       lcl_interp=lcl_interp,
-                                                      pos_cape_neg_cin=pos_cape_neg_cin)
+                                                      pos_cape_neg_cin=pos_cape_neg_cin,
+                                                      post_zero_cin=post_zero_cin)
     
     # Profile including LCL for surface-based parcel ascent.
     surface_profile = parcel.parcel_profile_with_lcl(pressure=dat.pressure,
@@ -498,7 +501,8 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
                                                                       virtual_temperature_correction=virt_temp,
                                                                       prefix='surface',
                                                                       lcl_interp=lcl_interp,
-                                                                      pos_cape_neg_cin=pos_cape_neg_cin)
+                                                                      pos_cape_neg_cin=pos_cape_neg_cin,
+                                                                      post_zero_cin=post_zero_cin)
     
     # Lifted index using mixed layer profile.
     lifted_index = parcel.lifted_index(profile=mixed_profile)
@@ -542,20 +546,24 @@ def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, l
     
     return out
 
-def test_parcel_functions(dat, virt_temp=False, lcl_interp='log', pos_cape_neg_cin=False):
+def test_parcel_functions(dat, virt_temp=False, lcl_interp='log', pos_cape_neg_cin=False, post_zero_cin=False):
     """
     Test that parcel functions in this module give the same results that MetPy gives for each profile.
     
     Arguments:
        dat: An xarray Dataset containing pressure, temperature, and specific humidity.
        virt_temp: Use the virtual temperature correction (MetPy does not).
+       lcl_interp: Inteprolation method to use for LCl.
+       pos_cape_neg_cin: Enforce only positive (negative) areas used for cape (cin)?
+       post_zero_cin: Reset positive cin to zero after all calculations, as is done in MetPy?
        
     Returns: true if all tests passed, false if not.
     """
     
     print('Calculating xarray results...\t\t', end='')
     xarray_results, time = time_function(func=conv_properties_xarray, dat=dat, virt_temp=virt_temp,
-                                         lcl_interp=lcl_interp, pos_cape_neg_cin=pos_cape_neg_cin)
+                                         lcl_interp=lcl_interp, pos_cape_neg_cin=pos_cape_neg_cin,
+                                         post_zero_cin=post_zero_cin)
     print(f'{str(time)} s.')
     
     print('Calculating metpy serial results...\t', end='')
