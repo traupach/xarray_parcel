@@ -95,7 +95,7 @@ def get_layer(dat, depth=100, vert_dim='model_level_number', interpolate=True):
         
     # Select the layer.
     layer = dat.where(dat.pressure <= bottom_pressure)
-    layer = dat.where(dat.pressure >= top_pressure)
+    layer = layer.where(layer.pressure >= top_pressure)
     
     return layer
 
