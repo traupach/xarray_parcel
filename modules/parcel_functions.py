@@ -1925,6 +1925,11 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
     flh = freezing_level_height(temperature=dat.temperature,
                                 height=dat.height_asl,
                                 vert_dim=vert_dim)
+
+    print('Freezing level height AGL...')
+    flh_agl = freezing_level_height(temperature=dat.temperature,
+                                    height=dat.height_above_surface,
+                                    vert_dim=vert_dim, agl=True)
     
     print('Melting level height...')
     mlh, _ = melting_level_height(pressure=dat.pressure,
@@ -1944,7 +1949,7 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
 
     print('Merging results...')
     out = xarray.merge([mixed_cape_cin_100, mixed_li_100, 
-                        lapse, temp_500, flh, mlh, shear])
+                        lapse, temp_500, flh, flh_agl, mlh, shear])
     
     return out
      
@@ -2134,7 +2139,7 @@ def lapse_rate(pressure, temperature, height, from_pressure=700, to_pressure=500
     
     return lapse
 
-def freezing_level_height(temperature, height, vert_dim='model_level_number'):
+def freezing_level_height(temperature, height, vert_dim='model_level_number', agl=False):
     """
     Calculate the freezing level height by looking for 0 degrees in a temperature field.
     
@@ -2144,6 +2149,7 @@ def freezing_level_height(temperature, height, vert_dim='model_level_number'):
                        use melting_level_height to add calculation of wet-bulb temperature.
         - height: Height of each level [m].
         - vert_dim: Name of vertical dimension.
+        - agl: This calculation is for above surface level?
         
     Returns:
     
@@ -2155,8 +2161,15 @@ def freezing_level_height(temperature, height, vert_dim='model_level_number'):
     flh = intersects.all_intersect_x.min(dim='offset_dim')
     flh.attrs['long_name'] = f'Freezing-level height'
     flh.attrs['description'] = f'Height of zero degree dry-bulb temperature isotherm.'
+    if agl:
+        flh.attrs['description'] = f'Height of zero degree dry-bulb temperature isotherm above ground level.'
     flh.attrs['units'] = 'm'
-    flh.name = 'freezing_level'
+    
+    if agl:
+        flh.name = 'freezing_level_above_surface'
+    else:
+        flh.name = 'freezing_level'
+
     return flh
 
 def melting_level_height(pressure, temperature, dewpoint, height, fast=True, vert_dim='model_level_number'):
@@ -2258,7 +2271,7 @@ def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_hei
         
     return out
 
-def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh):
+def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh_agl):
     """
     Calculate the significant hail parameter, as given at
     https://www.spc.noaa.gov/exper/mesoanalysis/help/help_sigh.html
@@ -2270,7 +2283,7 @@ def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh
         - lapse: 700-500 hPa lapse rate [K km-1].
         - temp_500: Temperature at 500 hPa [K].
         - shear: 0-6 km bulk wind shear [m s-1].
-        - flh: Freezing level height [m].
+        - flh_agl: Freezing level height [m] above ground level.
         
     Returns:
     
@@ -2297,7 +2310,7 @@ def significant_hail_parameter(mucape, mixing_ratio, lapse, temp_500, shear, flh
     # Three conditions change the value of SHIP.
     ship = ship.where(mucape >= 1300, other=ship * (mucape/1300))
     ship = ship.where(lapse >= 5.8, other=ship * (lapse/5.8))
-    ship = ship.where(flh >= 2400, other=ship * (flh/2400))
+    ship = ship.where(flh_agl >= 2400, other=ship * (flh/2400))
     
     # Metadata.
     ship.attrs['long_name'] = 'Significant hail parameter'
@@ -2386,7 +2399,7 @@ def storm_proxies(dat):
                                              lapse=dat.lapse_rate_700_500,
                                              temp_500=dat.temp_500,
                                              shear=dat.S06,
-                                             flh=dat.freezing_level)
+                                             flh=dat.freezing_level_above_surface)
     out['proxy_SHIP_0.1'] = out.ship > 0.1
     out.ship.attrs['long_name'] = 'Significant hail parameter (SHIP)'
 
