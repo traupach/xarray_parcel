@@ -1,6 +1,7 @@
 """xarray-enabled versions of MetPy functions for atmospheric parcel calculations."""
 
 import sys
+from pathlib import Path
 
 import metpy
 import metpy.calc
@@ -286,9 +287,9 @@ def moist_adiabat_tables(
     regenerate=False,
     cache=True,
     chunks=None,
-    base_dir='.',
-    lookup_cache='/adiabat_lookups/moist_adiabat_lookup.nc',
-    adiabats_cache='/adiabat_lookups/adiabats_cache.nc',
+    base_dir=str(Path('~/adiabat_lookups/').expanduser()),
+    lookup_cache='moist_adiabat_lookup.nc',
+    adiabats_cache='adiabats_cache.nc',
     **kwargs,
 ):
     """Calculate moist adiabat lookup tables.
@@ -307,16 +308,16 @@ def moist_adiabat_tables(
 
     """
     if not regenerate:
-        adiabat_lookup = xarray.open_dataset(base_dir + lookup_cache, chunks=chunks).persist()
-        adiabats = xarray.open_dataset(base_dir + adiabats_cache, chunks=chunks).persist()
+        adiabat_lookup = xarray.open_dataset(base_dir + '/' + lookup_cache, chunks=chunks).persist()
+        adiabats = xarray.open_dataset(base_dir + '/' + adiabats_cache, chunks=chunks).persist()
         return adiabat_lookup, adiabats
 
     # Generate lookup tables.
     adiabat_lookup, adiabats = moist_adiabat_lookup(**kwargs)
 
     if cache:
-        adiabats.to_netcdf(base_dir + adiabats_cache)
-        adiabat_lookup.to_netcdf(base_dir + lookup_cache)
+        adiabats.to_netcdf(base_dir + '/' + adiabats_cache)
+        adiabat_lookup.to_netcdf(base_dir + '/' + lookup_cache)
 
     return adiabat_lookup.chunk(chunks), adiabats.chunk(chunks)
 
@@ -784,7 +785,7 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number', environment=None,
     out.pressure.attrs['long_name'] = 'Pressure at LCL'
     out.lcl_virtual_temperature.attrs['long name'] = 'Virtual temperature at LCL'
 
-    if not environment is None:
+    if environment is not None:
         # Interpolate the environment to get the level to insert.
         # Note: MetPy uses a linear interpolator even on pressure levels.
         # By default I use the log interpolator for greater accuracy.
@@ -796,7 +797,7 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number', environment=None,
         # Set the interpolated pressure.
         interp_level['pressure'] = level.pressure
 
-        if 'virtual_temperature' in interp_level.keys():
+        if 'virtual_temperature' in interp_level:
             interp_level.dewpoint.attrs['units'] = 'K'
             interp_level.temperature.attrs['units'] = 'K'
 
@@ -807,7 +808,7 @@ def add_lcl_to_profile(profile, vert_dim='model_level_number', environment=None,
         # Add the new level into the environment.
         new_environment = insert_level(d=environment, level=interp_level, coords='pressure', vert_dim=vert_dim)
 
-        for k in environment.keys():
+        for k in environment:
             if k != 'pressure':
                 out['environment_' + k] = new_environment[k]
                 out['environment_' + k].attrs = environment[k].attrs
@@ -1012,7 +1013,7 @@ def lfc_el(pressure, parcel_temperature, temperature, lcl_pressure, lcl_temperat
     out['el_temperature'] = out.el_temperature.where(el_exists, other=np.nan)
 
     # There should only be one LFC and EL per point.
-    assert not 'offset_dim' in out.keys(), 'Duplicate crossings detected.'
+    assert 'offset_dim' not in out, 'Duplicate crossings detected.'
 
     # Identify points where no LFC intersections were found.
     lfc_missing = np.isnan(intersections.increasing_x.max(dim='offset_dim'))
@@ -1128,7 +1129,7 @@ def trap_around_zeros(x, y, dim, log_x=True, start=0):
     # Mask is a mask that selects elements that were *not* included in
     # the differences; to be used by a CAPE calculation where we don't
     # want to count the areas around zeros twice.
-    mask = xarray.full_like(x, True)
+    mask = xarray.full_like(other=x, fill_value=True)
     mask, bef = xarray.broadcast(mask, areas_before_zeros)
     mask = mask.where(np.isnan(bef.area), other=False)
 
@@ -1359,7 +1360,7 @@ def surface_based_cape_cin(pressure, temperature, dewpoint, vert_dim='model_leve
 
     res.cape.attrs['description'] = 'CAPE for surface-based parcel.'
     res.cin.attrs['description'] = 'CIN for surface-based parcel.'
-    if not prefix is None:
+    if prefix is not None:
         res = res.rename({'cape': prefix + '_cape', 'cin': prefix + '_cin'})
 
     return res, profile
@@ -1438,7 +1439,7 @@ def most_unstable_cape_cin(pressure, temperature, dewpoint, vert_dim='model_leve
     desc = f'most-unstable parcel in lowest {depth} hPa.'
     res.cape.attrs['description'] = f'CAPE for {desc}'
     res.cin.attrs['description'] = f'CIN for {desc}'
-    if not prefix is None:
+    if prefix is not None:
         res = res.rename({'cape': prefix + '_cape', 'cin': prefix + '_cin'})
 
     return res, profile, unstable_layer
@@ -1519,7 +1520,7 @@ def mixed_layer_cape_cin(pressure, temperature, dewpoint, vert_dim='model_level_
     res.cape.attrs['description'] = f'CAPE for {desc}.'
     res.cin.attrs['description'] = f'CIN for {desc}'
 
-    if not prefix is None:
+    if prefix is not None:
         res = res.rename({'cape': prefix + '_cape', 'cin': prefix + '_cin'})
 
     return res, profile, mp
@@ -1536,7 +1537,7 @@ def shift_out_nans(x, name, dim):
     """
     assert np.all(np.abs(x[dim].diff(dim=dim)) == 1), 'Index increments must all be 1.'
 
-    for i in np.arange(len(x[dim])):
+    for _i in np.arange(len(x[dim])):
         if not np.any(np.isnan(x[name].isel({dim: 0}))):
             break
         shifted = x.shift({dim: -1})
@@ -1568,9 +1569,9 @@ def lifted_index(profile, vert_dim='model_level_number', description=None, prefi
     li = xarray.Dataset({'lifted_index': (dat.environment_temperature - dat.temperature)})
     li.lifted_index.attrs['long_name'] = 'Lifted index'
     li.lifted_index.attrs['units'] = 'K'
-    if not description is None:
+    if description is not None:
         li.lifted_index.attrs['description'] = description
-    if not prefix is None:
+    if prefix is not None:
         li = li.rename({'lifted_index': prefix + '_lifted_index'})
 
     return li
@@ -1675,9 +1676,9 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index, vert_di
     dci.dci.attrs['long_name'] = 'Deep convective index'
     dci.dci.attrs['units'] = 'C'
 
-    if not description is None:
+    if description is not None:
         dci.dci.attrs['description'] = description
-    if not prefix is None:
+    if prefix is not None:
         dci = dci.rename({'dci': prefix + '_dci'})
 
     return dci

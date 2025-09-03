@@ -86,7 +86,7 @@ def test_wet_bulb_temperature(dp=5):
     levels = vert_array([1000.0], 'hPa')
 
     val = parcel.wet_bulb_temperature(pressure=levels, temperature=temp, dewpoint=dewp)
-    truth = 18.3432116 + 273.15  # 18.59 C from NWS calculator
+    truth = 291.5036975
     assert_almost_equal(val, truth, dp)
 
 
@@ -111,20 +111,20 @@ def test_wet_bulb_temperature_1d(dp=5):
 
 def run_moist_lapse_tests_looser():
     """Run all the tests, with looser matching requirements."""
-    test_moist_lapse()
-    test_moist_lapse_ref_pres()
+    test_moist_lapse_approx()
+    test_moist_lapse_ref_pres_approx()
     test_moist_lapse_scalar()
     test_moist_lapse_uniform(dp=2)
     print('Moist lapse tests passed.')
 
 
-def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None):
+def metpy_moist_lapse(pressure, parcel_temperature, parcel_pressure=None, vert_dim='model_level_number'):
     """Wrap metpy's moist_lapse()."""
     vert_coords = None
     if isinstance(parcel_pressure, xarray.DataArray):
         parcel_pressure = parcel_pressure.values
     if isinstance(pressure, xarray.DataArray):
-        vert_coords = pressure.model_level_number
+        vert_coords = pressure[vert_dim]
         pressure = pressure.values
     if isinstance(parcel_temperature, xarray.DataArray):
         parcel_temperature = parcel_temperature.values
@@ -167,17 +167,31 @@ def test_dry_lapse_2_levels():
 
 
 def test_moist_lapse():
-    """Test moist_lapse calculation."""
+    """Test moist_lapse calculation using MetPy lapse rate calculator."""
     levels = vert_array([1000.0, 800.0, 600.0, 500.0, 400.0], 'hPa')
     temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293.0)
-    assert_array_almost_equal(temp, [293, 284.64, 272.81, 264.42, 252.91], 2)
+    assert_array_almost_equal(temp, [293, 284.64, 272.8, 264.41, 252.88], 2)
+
+
+def test_moist_lapse_approx():
+    """Test moist_lapse calculation using fast lapse rate lookup table."""
+    levels = vert_array([1000.0, 800.0, 600.0, 500.0, 400.0], 'hPa')
+    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293.0)
+    assert_array_almost_equal(temp, [293.01, 284.65, 272.82, 264.43, 252.92], 2)
 
 
 def test_moist_lapse_ref_pres():
-    """Test moist_lapse with a reference pressure."""
+    """Test moist_lapse with a reference pressure (for MetPy lapse rates)."""
     levels = vert_array([1050.0, 800.0, 600.0, 500.0, 400.0], 'hPa')
     temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293, parcel_pressure=1000)
-    assert_array_almost_equal(temp, [294.76, 284.64, 272.81, 264.42, 252.91], 2)
+    assert_array_almost_equal(temp, [294.76, 284.64, 272.8, 264.41, 252.88], 2)
+
+
+def test_moist_lapse_ref_pres_approx():
+    """Test moist_lapse with a reference pressure (for approx lapse rates)."""
+    levels = vert_array([1050.0, 800.0, 600.0, 500.0, 400.0], 'hPa')
+    temp = parcel.moist_lapse(pressure=levels, parcel_temperature=293, parcel_pressure=1000)
+    assert_array_almost_equal(temp, [294.77, 284.65, 272.82, 264.43, 252.92], 2)
 
 
 def test_moist_lapse_scalar():
@@ -218,8 +232,8 @@ def test_parcel_profile_lcl(dp=3):
     p = vert_array([1004.0, 1000.0, 943.0, 928.0, 925.0, 850.0, 839.0, 749.0, 700.0, 699.0], 'hPa')
     t = vert_array([24.2, 24.0, 20.2, 21.6, 21.4, 20.4, 20.2, 14.4, 13.2, 13.0], 'K') + 273.15
 
-    true_t = np.array([24.2, 24.0, 22.047, 20.2, 21.6, 21.4, 20.4, 20.2, 14.4, 13.2, 13.0]) + 273.15
-    true_p = np.array([1004.0, 1000.0, 970.711, 943.0, 928.0, 925.0, 850.0, 839.0, 749.0, 700.0, 699.0])
+    true_t = np.array([24.2, 24.0, 22.036, 20.2, 21.6, 21.4, 20.4, 20.2, 14.4, 13.2, 13.0]) + 273.15
+    true_p = np.array([1004.0, 1000.0, 970.535, 943.0, 928.0, 925.0, 850.0, 839.0, 749.0, 700.0, 699.0])
     true_prof = np.array([297.35, 297.01, 294.5, 293.48, 292.92, 292.81, 289.79, 289.32, 285.15, 282.59, 282.53])
 
     parcel_temperature = xarray.DataArray(24.2 + 273.15, attrs={'units': 'K'})
@@ -259,7 +273,7 @@ def test_lcl():
     parcel_pressure = xarray.DataArray(1000, attrs={'units': 'hPa'})
     parcel_dewpoint = xarray.DataArray(20 + 273.15, attrs={'units': 'K'})
     lcl = parcel.lcl(parcel_pressure=parcel_pressure, parcel_temperature=parcel_temperature, parcel_dewpoint=parcel_dewpoint)
-    assert_almost_equal(lcl.lcl_pressure, 864.806, 2)
+    assert_almost_equal(lcl.lcl_pressure, 864.213, 2)
     assert_almost_equal(lcl.lcl_temperature, 17.676 + 273.15, 2)
 
 
@@ -296,7 +310,7 @@ def test_lfc_basic(dp=2):
         lcl_pressure=profile.lcl_pressure,
         lcl_temperature=profile.lcl_temperature,
     )
-    assert_almost_equal(lfc.lfc_pressure, 727.371, dp)
+    assert_almost_equal(lfc.lfc_pressure, 727.413, dp)
     assert_almost_equal(lfc.lfc_temperature, 9.705 + 273.15, dp)
 
 
@@ -323,8 +337,8 @@ def test_lfc_ml(dp=2):
         lcl_pressure=profile.lcl_pressure,
         lcl_temperature=profile.lcl_temperature,
     )
-    assert_almost_equal(lfc.lfc_pressure, 601.225, dp)
-    assert_almost_equal(lfc.lfc_temperature, -1.90688 + 273.15, dp)
+    assert_almost_equal(lfc.lfc_pressure, 601.000, dp)
+    assert_almost_equal(lfc.lfc_temperature, 271.221, dp)
 
 
 def test_lfc_ml2():
@@ -515,7 +529,7 @@ def test_lfc_ml2():
         lcl_pressure=profile.lcl_pressure,
         lcl_temperature=profile.lcl_temperature,
     )
-    assert_almost_equal(lfc.lfc_pressure, 962.34, 2)
+    assert_almost_equal(lfc.lfc_pressure, 962.14, 2)
     assert_almost_equal(lfc.lfc_temperature, 0.767 + 273.15, 2)
 
 
@@ -594,7 +608,7 @@ def test_lfc_inversion(dp=2):
         lcl_temperature=profile.lcl_temperature,
     )
 
-    assert_almost_equal(lfc.lfc_pressure, 705.8806, dp)
+    assert_almost_equal(lfc.lfc_pressure, 705.954, dp)
     assert_almost_equal(lfc.lfc_temperature, 10.6232 + 273.15, dp)
 
 
@@ -620,7 +634,7 @@ def test_lfc_equals_lcl():
         lcl_pressure=profile.lcl_pressure,
         lcl_temperature=profile.lcl_temperature,
     )
-    assert_almost_equal(lfc.lfc_pressure, 777.0786, 2)
+    assert_almost_equal(lfc.lfc_pressure, 776.505, 2)
     assert_almost_equal(lfc.lfc_temperature, 15.8714 + 273.15, 2)
 
 
@@ -733,7 +747,7 @@ def test_sensitive_sounding_mp(dp=2):
         lcl_temperature=profile.lcl_temperature,
     )
 
-    assert_almost_equal(lfc.lfc_pressure, 947.422, dp)
+    assert_almost_equal(lfc.lfc_pressure, 947.476, dp)
     assert_almost_equal(lfc.lfc_temperature, 20.498 + 273.15, dp)
 
     cape_cin, _ = parcel.surface_based_cape_cin(
@@ -743,8 +757,8 @@ def test_sensitive_sounding_mp(dp=2):
         virtual_temperature_correction=False,
         lcl_interp='linear',
     )
-    assert_almost_equal(cape_cin.cape, 0.1115, 3)
-    assert_almost_equal(cape_cin.cin, -6.0866, 3)
+    assert_almost_equal(cape_cin.cape, 0.1141, 3)
+    assert_almost_equal(cape_cin.cin, -6.0235, 3)
 
 
 def test_sensitive_sounding(dp=2):
@@ -856,12 +870,12 @@ def test_sensitive_sounding(dp=2):
         lcl_temperature=profile.lcl_temperature,
     )
 
-    assert_almost_equal(lfc.lfc_pressure, 947.422, dp)
+    assert_almost_equal(lfc.lfc_pressure, 947.476, dp)
     assert_almost_equal(lfc.lfc_temperature, 20.498 + 273.15, dp)
 
     cape_cin, _ = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
-    assert_almost_equal(cape_cin.cape, 0.5961, 3)
-    assert_almost_equal(cape_cin.cin, -5.1399, 3)
+    assert_almost_equal(cape_cin.cape, 0.6195, 3)
+    assert_almost_equal(cape_cin.cin, -5.0297, 3)
 
 
 def test_lfc_sfc_precision():
@@ -1067,8 +1081,8 @@ def test_el():
         lcl_pressure=profile.lcl_pressure,
         lcl_temperature=profile.lcl_temperature,
     )
-    assert_almost_equal(el.el_pressure, 471.83286, 3)
-    assert_almost_equal(el.el_temperature, -11.5603 + 273.15, 3)
+    assert_almost_equal(el.el_pressure, 472.7163, 3)
+    assert_almost_equal(el.el_temperature, 261.6777, 3)
 
 
 def test_el_ml():
@@ -1095,8 +1109,8 @@ def test_el_ml():
         lcl_pressure=profile.lcl_pressure,
         lcl_temperature=profile.lcl_temperature,
     )
-    assert_almost_equal(el.el_pressure, 350.0561, 3)
-    assert_almost_equal(el.el_temperature, -28.36156 + 273.15, 3)
+    assert_almost_equal(el.el_pressure, 350.1915, 3)
+    assert_almost_equal(el.el_temperature, 244.7982, 3)
 
 
 def test_no_el():
@@ -1331,8 +1345,8 @@ def test_el_lfc_equals_lcl():
         lcl_temperature=profile.lcl_temperature,
     )
 
-    assert_almost_equal(el.el_pressure, 175.7663, 3)
-    assert_almost_equal(el.el_temperature, -57.03994 + 273.15, 3)
+    assert_almost_equal(el.el_pressure, 175.7494, 3)
+    assert_almost_equal(el.el_temperature, 216.1133, 3)
 
 
 def test_el_small_surface_instability():
@@ -1681,14 +1695,13 @@ def test_cape_cin():
     cape_cin = parcel.cape_cin_base(
         pressure=levels,
         temperature=temperatures,
-        dewpoint=dewpoints,
         lfc_pressure=lfc.lfc_pressure,
         el_pressure=lfc.el_pressure,
         parcel_temperature=profile.temperature,
     )
 
-    assert_almost_equal(cape_cin.cape, 75.05354, 2)
-    assert_almost_equal(cape_cin.cin, -89.890078, 2)
+    assert_almost_equal(cape_cin.cape, 74.8432, 2)
+    assert_almost_equal(cape_cin.cin, -89.7833, 2)
 
 
 def test_cape_cin_no_el():
@@ -1717,7 +1730,7 @@ def test_cape_cin_no_el():
     )
 
     assert_almost_equal(cape_cin.cape, 0.08610409, 2)
-    assert_almost_equal(cape_cin.cin, -89.8900784, 2)
+    assert_almost_equal(cape_cin.cin, -89.7833, 2)
 
 
 def test_cape_cin_no_lfc():
@@ -1778,8 +1791,8 @@ def test_surface_based_cape_cin_mp():
         lcl_interp='linear',
     )
 
-    assert_almost_equal(cape_cin.cape, 75.0535446, 2)
-    assert_almost_equal(cape_cin.cin, -136.685967, 2)
+    assert_almost_equal(cape_cin.cape, 74.84322, 2)
+    assert_almost_equal(cape_cin.cin, -136.4073, 2)
 
 
 def test_surface_based_cape_cin():
@@ -1790,8 +1803,8 @@ def test_surface_based_cape_cin():
 
     cape_cin, _ = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
 
-    assert_almost_equal(cape_cin.cape, 230.1982, 2)
-    assert_almost_equal(cape_cin.cin, -58.0673, 2)
+    assert_almost_equal(cape_cin.cape, 230.3028, 2)
+    assert_almost_equal(cape_cin.cin, -57.05466, 2)
 
 
 def test_profile_with_lcl_in_levels_mp():
@@ -1812,8 +1825,8 @@ def test_profile_with_lcl_in_levels_mp():
         lcl_interp='linear',
     )
 
-    assert_almost_equal(cape_cin.cape, 75.0535446, 2)
-    assert_almost_equal(cape_cin.cin, -136.685967, 2)
+    assert_almost_equal(cape_cin.cape, 74.8432, 2)
+    assert_almost_equal(cape_cin.cin, -136.499, 2)
 
 
 def test_profile_with_lcl_in_levels():
@@ -1828,8 +1841,8 @@ def test_profile_with_lcl_in_levels():
 
     cape_cin, _, _ = parcel.most_unstable_cape_cin(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
 
-    assert_almost_equal(cape_cin.cape, 230.1982, 2)
-    assert_almost_equal(cape_cin.cin, -58.0673, 2)
+    assert_almost_equal(cape_cin.cape, 230.3027, 2)
+    assert_almost_equal(cape_cin.cin, -57.144, 2)
 
 
 def test_profile_with_nans_mp():
@@ -2192,7 +2205,11 @@ def test_profile_with_nans():
     )
 
     cape_cin_base = parcel.cape_cin_base(
-        pressure=levels, temperature=temperatures, lfc_pressure=lfc.lfc_pressure, el_pressure=lfc.el_pressure, parcel_temperature=profile.temperature,
+        pressure=levels,
+        temperature=temperatures,
+        lfc_pressure=lfc.lfc_pressure,
+        el_pressure=lfc.el_pressure,
+        parcel_temperature=profile.temperature,
     )
     cape_cin_surf, _ = parcel.surface_based_cape_cin(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
     cape_cin_unstable, _, _ = parcel.most_unstable_cape_cin(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
@@ -2216,11 +2233,15 @@ def test_most_unstable_cape_cin_surface_mp():
     dewpoints.name = 'dewpoint'
 
     cape_cin, _, _ = parcel.most_unstable_cape_cin(
-        pressure=levels, temperature=temperatures, dewpoint=dewpoints, virtual_temperature_correction=False, lcl_interp='linear',
+        pressure=levels,
+        temperature=temperatures,
+        dewpoint=dewpoints,
+        virtual_temperature_correction=False,
+        lcl_interp='linear',
     )
 
-    assert_almost_equal(cape_cin.cape, 75.0535446, 2)
-    assert_almost_equal(cape_cin.cin, -136.685967, 2)
+    assert_almost_equal(cape_cin.cape, 74.8432, 2)
+    assert_almost_equal(cape_cin.cin, -136.4072, 2)
 
 
 def test_most_unstable_cape_cin_surface():
@@ -2234,8 +2255,8 @@ def test_most_unstable_cape_cin_surface():
 
     cape_cin, _, _ = parcel.most_unstable_cape_cin(pressure=levels, temperature=temperatures, dewpoint=dewpoints)
 
-    assert_almost_equal(cape_cin.cape, 230.1982, 2)
-    assert_almost_equal(cape_cin.cin, -58.0673, 2)
+    assert_almost_equal(cape_cin.cape, 230.3027, 2)
+    assert_almost_equal(cape_cin.cin, -57.0546, 2)
 
 
 def test_most_unstable_cape_cin():
@@ -2258,7 +2279,7 @@ def test_mixed_parcel():
     mixed = parcel.mixed_parcel(pressure=levels, temperature=temperatures, dewpoint=dewpoints, depth=250)
     assert_almost_equal(mixed.pressure, 959.0, 6)
     assert_almost_equal(mixed.temperature, 28.7401463 + 273.15, 6)
-    assert_almost_equal(mixed.dewpoint, 7.1534658 + 273.15, 6)
+    assert_almost_equal(mixed.dewpoint, 280.2890165, 6)
 
 
 def test_mixed_layer_cape_cin():
@@ -2266,13 +2287,17 @@ def test_mixed_layer_cape_cin():
     levels, temperatures, dewpoints = multiple_intersections()
 
     cape_cin, _, _ = parcel.mixed_layer_cape_cin(
-        pressure=levels, temperature=temperatures, dewpoint=dewpoints, virtual_temperature_correction=False, lcl_interp='linear',
+        pressure=levels,
+        temperature=temperatures,
+        dewpoint=dewpoints,
+        virtual_temperature_correction=False,
+        lcl_interp='linear',
     )
 
     # Values updated from MetPy since we handle multiple intersections
     # differently (CAPE only positive, CIN only negative).
-    assert_almost_equal(cape_cin.cape, 1096.7461, 2)
-    assert_almost_equal(cape_cin.cin, -20.6727, 2)
+    assert_almost_equal(cape_cin.cape, 1092.0358, 2)
+    assert_almost_equal(cape_cin.cin, -20.5367, 2)
 
 
 def test_mixed_layer():
@@ -2346,8 +2371,8 @@ def test_lfc_not_below_lcl():
         lcl_pressure=profile.lcl_pressure,
         lcl_temperature=profile.lcl_temperature,
     )
-    assert_almost_equal(lfc_el.lfc_pressure, 811.618879, 3)
-    assert_almost_equal(lfc_el.lfc_temperature, 6.48644650 + 273.15, 3)
+    assert_almost_equal(lfc_el.lfc_pressure, 812.048, 3)
+    assert_almost_equal(lfc_el.lfc_temperature, 279.663, 3)
 
 
 def multiple_intersections():
@@ -2517,9 +2542,9 @@ def test_multiple_lfcs_el_simple():
         lcl_temperature=profile.lcl_temperature,
     )
 
-    assert_almost_equal(lfc_el.lfc_pressure, 884.14790, 3)
-    assert_almost_equal(lfc_el.lfc_temperature, 13.95707016 + 273.15, 3)
-    assert_almost_equal(lfc_el.el_pressure, 228.151466, 3)
+    assert_almost_equal(lfc_el.lfc_pressure, 884.2099, 3)
+    assert_almost_equal(lfc_el.lfc_temperature, 287.1106, 3)
+    assert_almost_equal(lfc_el.el_pressure, 228.2111, 3)
     assert_almost_equal(lfc_el.el_temperature, -56.81015490 + 273.15, 3)
 
 
@@ -2541,10 +2566,14 @@ def test_cape_cin_custom_profile():
         lcl_temperature=profile.lcl_temperature,
     )
     cape_cin = parcel.cape_cin_base(
-        pressure=levels, temperature=temperatures, lfc_pressure=lfc.lfc_pressure, el_pressure=lfc.el_pressure, parcel_temperature=profile.temperature,
+        pressure=levels,
+        temperature=temperatures,
+        lfc_pressure=lfc.lfc_pressure,
+        el_pressure=lfc.el_pressure,
+        parcel_temperature=profile.temperature,
     )
 
-    assert_almost_equal(cape_cin.cape, 1440.463208696, 2)
+    assert_almost_equal(cape_cin.cape, 1438.5074, 2)
     assert_almost_equal(cape_cin.cin, 0.0, 2)
 
 
@@ -2576,7 +2605,10 @@ def test_parcel_profile_below_lcl():
     parcel_dewpoint = xarray.DataArray(-10.8 + 273.15, attrs={'units': 'K'})
 
     profile = parcel.parcel_profile(
-        pressure=pressure, parcel_pressure=pressure[0], parcel_temperature=parcel_temperature, parcel_dewpoint=parcel_dewpoint,
+        pressure=pressure,
+        parcel_pressure=pressure[0],
+        parcel_temperature=parcel_temperature,
+        parcel_dewpoint=parcel_dewpoint,
     )
 
     assert_array_almost_equal(profile.temperature, truth, 6)
@@ -2776,10 +2808,14 @@ def test_cape_cin_value_error():
     )
 
     cape_cin, _ = parcel.surface_based_cape_cin(
-        pressure=levels, temperature=temperatures, dewpoint=dewpoints, virtual_temperature_correction=False, lcl_interp='linear',
+        pressure=levels,
+        temperature=temperatures,
+        dewpoint=dewpoints,
+        virtual_temperature_correction=False,
+        lcl_interp='linear',
     )
 
-    assert_almost_equal(cape_cin.cape, 2007.040698, 3)
+    assert_almost_equal(cape_cin.cape, 2007.952, 3)
     assert_almost_equal(cape_cin.cin, 0.0, 3)
 
 
@@ -2791,8 +2827,8 @@ def test_lcl_grid_surface_lcls():
 
     lcl = parcel.lcl(parcel_pressure=pressure[0], parcel_temperature=temperature[0], parcel_dewpoint=dewpoint[0])
 
-    pres_truth = np.array([1000, 932.1719, 1010])
-    temp_truth = np.array([15, 9.10424, 13]) + 273.15
+    pres_truth = np.array([1000, 932.0425, 1010])
+    temp_truth = np.array([288.15, 282.2522, 286.15])
     assert_array_almost_equal(lcl.lcl_pressure, pres_truth, 4)
     assert_array_almost_equal(lcl.lcl_temperature, temp_truth, 4)
 
