@@ -994,7 +994,7 @@ def lfc_el(pressure, parcel_temperature, temperature, lcl_pressure, lcl_temperat
     # Determine equilibrium pressure and temperature. The 'top'
     # (lowest pressure) EL is returned.
     out['el_pressure'] = intersections_above.decreasing_x.min(dim='offset_dim')
-    out['el_temperature'] = intersections_above.decreasing_y.where(intersections.decreasing_x == out.el_pressure).max(dim='offset_dim')
+    out['el_temperature'] = intersections_above.decreasing_y.where(intersections_above.decreasing_x == out.el_pressure).max(dim='offset_dim')
 
     # If at the top of the atmosphere the parcel profile is warmer
     # than the environment, no EL exists. Also if EL is lower than or
@@ -1887,6 +1887,9 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
     print('Freezing level height...')
     flh = freezing_level_height(temperature=dat.temperature, height=dat.height_asl, vert_dim=vert_dim)
 
+    print('Freezing level height AGL...')
+    flh_agl = freezing_level_height(temperature=dat.temperature, height=dat.height_above_surface, vert_dim=vert_dim, agl=True)
+
     print('Melting level height...')
     mlh, _ = melting_level_height(pressure=dat.pressure, temperature=dat.temperature, dewpoint=dat.dewpoint, height=dat.height_asl, vert_dim=vert_dim)
 
@@ -1917,6 +1920,7 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
             lapse,
             temp_500,
             flh,
+            flh_agl,
             mlh,
             shear,
         ],
@@ -2189,7 +2193,7 @@ def storm_proxies(dat):
         lapse=dat.lapse_rate_700_500,
         temp_500=dat.temp_500,
         shear=dat.S06,
-        flh=dat.freezing_level_above_surface,
+        flh_agl=dat.freezing_level_above_surface,
     )
     out['proxy_SHIP_0.1'] = out.ship > 0.1  # noqa: PLR2004
     out.ship.attrs['long_name'] = 'Significant hail parameter (SHIP)'
