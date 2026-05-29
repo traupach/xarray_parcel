@@ -365,8 +365,8 @@ def conv_properties_metpy_serial(dat):
                         'mixed_cin': mixed_cin.m,
                         'max_cape': max_cape.m,
                         'max_cin': max_cin.m,
-                        'lifted_index': float(lifted_index.m),
-                        'dci': float(dci.m),
+                        'lifted_index': np.asarray(lifted_index.m).squeeze().item(),
+                        'dci': np.asarray(dci.m).squeeze().item(),
                         'wet_bulb_temperature': (['model_level_number'], wb.m),
                         'wet_bulb_temperature_fast': (['model_level_number'], wb.m),
                     },
@@ -377,7 +377,7 @@ def conv_properties_metpy_serial(dat):
             out[-1] = out[-1].expand_dims({'longitude': [out[-1].longitude]})
             out[-1] = out[-1].expand_dims({'latitude': [out[-1].latitude]})
 
-    return xarray.merge(out)
+    return xarray.merge(out, compat='no_conflicts', join='outer')
 
 
 def conv_properties_xarray(dat, vert_dim='model_level_number', virt_temp=True, lcl_interp='log', pos_cape_neg_cin=False, post_zero_cin=False):

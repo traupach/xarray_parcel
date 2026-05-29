@@ -85,6 +85,9 @@ def get_layer(dat, depth=100, vert_dim='model_level_number', interpolate=True):
 
     # Select the layer.
     layer = dat.where(dat.pressure <= bottom_pressure)
+
+    # Clear global attributes.
+    layer.attrs = []
     return layer.where(layer.pressure >= top_pressure)
 
 
@@ -139,8 +142,11 @@ def mixed_layer(dat, depth=100, vert_dim='model_level_number'):
     layer = get_layer(dat=dat, depth=depth, vert_dim=vert_dim)
 
     pressure_depth = np.abs(layer.pressure.min(vert_dim) - layer.pressure.max(vert_dim))
+    pressure_depth.attrs = {}
 
-    return (1.0 / pressure_depth) * trapz(dat=layer, x='pressure', dim=vert_dim)
+    res = (1.0 / pressure_depth) * trapz(dat=layer, x='pressure', dim=vert_dim)
+
+    return res
 
 
 def trapz(dat, x, dim, mask=None, only_positive=False, only_negative=False):
@@ -165,10 +171,13 @@ def trapz(dat, x, dim, mask=None, only_positive=False, only_negative=False):
 
     dx = np.abs(dat[x].diff(dim))
     dx = dx.reset_coords(drop=True)
+    dx.attrs = []
+
     means = dat.rolling({dim: 2}, center=True).mean(keep_attrs=True)
     means = means.reset_coords(drop=True)
 
     dx = dx.assign_coords({dim: dx[dim] - 1})
+
     means = means.assign_coords({dim: means[dim] - 1})
 
     if mask is not None:
@@ -182,6 +191,9 @@ def trapz(dat, x, dim, mask=None, only_positive=False, only_negative=False):
         areas = areas.where(areas > 0)
     if only_negative:
         areas = areas.where(areas < 0)
+
+    #for v in areas.data_vars:
+    #    areas[v].attrs = {}
 
     return areas.sum(dim)
 
@@ -236,7 +248,7 @@ def mixed_parcel(pressure, temperature, dewpoint, depth=100, vert_dim='model_lev
 
     # Mix theta and mixing ratio over the layer.
     assert pressure.name is not None, 'pressure requires name pressure.'
-    mp = mixed_layer(xarray.merge([pressure, theta, mixing_ratio]), depth=depth, vert_dim=vert_dim)
+    mp = mixed_layer(xarray.merge([pressure, theta, mixing_ratio], compat='no_conflicts', join='outer'), depth=depth, vert_dim=vert_dim)
 
     # Convert potential temperature back to temperature.
     mp['temperature'] = mp.theta * metpy.calc.exner_function(parcel_start_pressure)
@@ -576,7 +588,7 @@ def lcl(parcel_pressure, parcel_temperature, parcel_dewpoint):
     parcel_pressure.name = 'parcel_pressure'
     parcel_temperature.name = 'parcel_temperature'
     parcel_dewpoint.name = 'parcel_dewpoint'
-    obj = xarray.merge([parcel_pressure, parcel_temperature, parcel_dewpoint])
+    obj = xarray.merge([parcel_pressure, parcel_temperature, parcel_dewpoint], compat='no_conflicts', join='outer')
     obj = obj.reset_coords(drop=True)
 
     # Define a block-able function for metpy's LCL.
@@ -649,7 +661,7 @@ def parcel_profile(pressure, parcel_pressure, parcel_temperature, parcel_dewpoin
     out['pressure'] = pressure
 
     # Find the LCL for the selected parcel.
-    out = xarray.merge([out, lcl(parcel_pressure=parcel_pressure, parcel_temperature=parcel_temperature, parcel_dewpoint=parcel_dewpoint)])
+    out = xarray.merge([out, lcl(parcel_pressure=parcel_pressure, parcel_temperature=parcel_temperature, parcel_dewpoint=parcel_dewpoint)], compat='no_conflicts', join='outer')
 
     # Parcels are raised along the dry adiabats from the starting
     # point to the LCL.
@@ -1225,7 +1237,7 @@ def cape_cin_base(
     if post_zero_cin:
         cin = cin.where(cin <= 0, other=0)
 
-    res = xarray.merge([cape, cin])
+    res = xarray.merge([cape, cin], compat='no_conflicts', join='outer')
     res.attrs = []
     return res
 
@@ -1328,7 +1340,7 @@ def cape_cin(
 
         cape_cin.attrs['correction'] = 'Virtual temperature correction used ' + 'in CAPE/CIN calculations.'
 
-    return cape_cin, xarray.merge([profile, parcel_lfc_el])
+    return cape_cin, xarray.merge([profile, parcel_lfc_el], compat='no_conflicts', join='outer')
 
 
 def surface_based_cape_cin(pressure, temperature, dewpoint, vert_dim='model_level_number', prefix=None, **kwargs):
@@ -1385,7 +1397,7 @@ def from_most_unstable_parcel(pressure, temperature, dewpoint, vert_dim='model_l
     assert temperature.name == 'temperature', 'Temperature requires ' + 'name temperature.'
     assert dewpoint.name == 'dewpoint', 'Dewpoint requires name dewpoint.'
 
-    dat = xarray.merge([pressure, temperature, dewpoint])
+    dat = xarray.merge([pressure, temperature, dewpoint], compat='no_conflicts', join='outer')
     dat.attrs = []
 
     # Find the most unstable layer in the lowest 'depth' hPa.
@@ -1468,7 +1480,7 @@ def mix_layer(pressure, temperature, dewpoint, vert_dim='model_level_number', de
     assert temperature.name == 'temperature', 'Temperature requires ' + 'name temperature.'
     assert dewpoint.name == 'dewpoint', 'Dewpoint requires name dewpoint.'
 
-    dat = xarray.merge([pressure, temperature, dewpoint])
+    dat = xarray.merge([pressure, temperature, dewpoint], compat='no_conflicts', join='outer')
     dat = dat.where(pressure < (pressure.max(dim=vert_dim) - depth))
     dat = dat.dropna(dim=vert_dim, how='all')
     dat = shift_out_nans(x=dat, name='pressure', dim=vert_dim)
@@ -1662,7 +1674,7 @@ def deep_convective_index(pressure, temperature, dewpoint, lifted_index, vert_di
     Returns: The DCI [C] per point.
 
     """
-    dat = xarray.merge([pressure, temperature, dewpoint])
+    dat = xarray.merge([pressure, temperature, dewpoint], compat='no_conflicts', join='outer')
 
     # Interpolate to get 850 hPa values.
     dat = log_interp(x=dat, coords=dat.pressure, at=850, dim=vert_dim)
@@ -1756,7 +1768,7 @@ def min_conv_properties(dat, vert_dim='model_level_number'):
     )
 
     print('Merging results...')
-    return xarray.merge([mixed_cape_cin_100, mixed_li_100, lapse, temp_500, flh, flh_agl, mlh, shear])
+    return xarray.merge([mixed_cape_cin_100, mixed_li_100, lapse, temp_500, flh, flh_agl, mlh, shear], compat='no_conflicts', join='outer')
 
 
 def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
@@ -1924,6 +1936,8 @@ def conv_properties(dat, vert_dim='model_level_number', ignore_nans=False):
             mlh,
             shear,
         ],
+        compat='no_conflicts',
+        join='outer',
     )
 
     if not ignore_nans:
@@ -2072,7 +2086,7 @@ def wind_shear(surface_wind_u, surface_wind_v, wind_u, wind_v, height, shear_hei
     shear_magnitude.name = 'shear_magnitude'
     shear_magnitude.attrs['long_name'] = f'Surface to {shear_height} m bulk wind shear.'
 
-    out = xarray.merge([shear_u, shear_v, shear_magnitude, positive_shear], combine_attrs='drop_conflicts')
+    out = xarray.merge([shear_u, shear_v, shear_magnitude, positive_shear], compat='no_conflicts', join='outer', combine_attrs='drop_conflicts')
     for v in ['shear_u', 'shear_v', 'shear_magnitude']:
         out[v].attrs['units'] = 'm s$^{-1}$'
 
